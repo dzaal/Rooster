@@ -1,6 +1,6 @@
 :root{--gd:#1a3d2b;--gm:#2d6a4f;--gl:#52b788;--gp:#b7e4c7;--cr:#f8f5ee;--cd:#ede8dc;--am:#e9a825;--tx:#1c1c1c;--mu:#7a8c7e;--hh:22px;--sh:0 4px 24px rgba(26,61,43,.12)}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',sans-serif;background:#fff;color:var(--tx);min-height:100vh}
+body{font-family:'DM Sans',sans-serif;background:#fff;color:var(--tx);min-height:100vh;overflow-x:hidden}
 header{background:var(--gd);color:var(--cr);padding:8px 10px;display:flex;align-items:center;gap:6px;box-shadow:var(--sh);position:sticky;top:0;z-index:100;flex-wrap:nowrap}
 .logo{width:32px;height:32px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 #pl{font-family:'Playfair Display',serif;font-size:.9rem;font-weight:700;color:#fff;flex:1;text-align:center;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -11,6 +11,8 @@ header{background:var(--gd);color:var(--cr);padding:8px 10px;display:flex;align-
   #pl{font-size:.78rem;order:5;flex:1}
   /* hide print button + install + event counter on phone portrait */
   #printBtnGroup,#installBtn,#ls{display:none!important}
+  /* hide redundant auth text — keep only the Google login button */
+  #loginInfo,#googleStatus{display:none!important}
   /* share button: show icon-only on phone portrait */
   #shareBtn .share-label{display:none}
   #shareBtn{padding:7px 9px}
