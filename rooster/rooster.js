@@ -1,4 +1,4 @@
-const CONFIG = window.ROOSTER_CONFIG || { branding:{}, auth:{accounts:[]}, crew:[], defaults:{} };
+const CONFIG = window.ROOSTER_CONFIG || { branding:{}, crew:[], defaults:{} };
 const B = CONFIG.branding || {};
 
 function applyBranding(){

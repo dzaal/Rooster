@@ -13,18 +13,6 @@ window.ROOSTER_CONFIG = {
     shareFilePrefix:  'parknest',
   },
 
-  // ── AUTH ─────────────────────────────────────────────────────────────────
-  auth: {
-    accounts: [
-      {
-        email: 'dirk@digizaal.nl',
-        pin: '2026',
-        name: 'Dirk',
-        role: 'admin'
-      }
-    ]
-  },
-
   // ── CREW ─────────────────────────────────────────────────────────────────
   crew: [
     {name: 'Dirk',    color: '#52b788'},
