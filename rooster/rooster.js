@@ -7,7 +7,7 @@ const ICS = ICS_ROOSTER; // backward compat
 const PROXIES = [
   url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
   url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-  url => `proxy.php?url=${encodeURIComponent(url)}`,
+  url => `rooster/proxy.php?url=${encodeURIComponent(url)}`,
 ];
 
 const LOCAL_STORAGE_KEY = 'parknest_rooster_local_shifts';
