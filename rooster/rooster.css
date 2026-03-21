@@ -57,8 +57,9 @@ header{background:var(--gd);color:var(--cr);padding:8px 10px;display:flex;align-
 .split-wrap{display:flex;flex-direction:column;gap:0;padding:13px 8px 36px}
 .sub-grid{display:grid;border-radius:0;overflow:visible;background:#fff;width:100%}
 /* slide animation wrapper */
-#slidePort{overflow:hidden;position:relative}
-#slideInner{display:flex;transition:transform .28s cubic-bezier(.4,0,.2,1);will-change:transform}
+#calOuter{width:100%}
+#slidePort{overflow:hidden;position:relative;width:100%}
+#slideInner{display:flex;transition:transform .28s cubic-bezier(.4,0,.2,1);will-change:transform;width:100%}
 #slideInner>*{flex:0 0 100%;width:100%}
 /* day header cells — bottom border separates header from grid; no individual top (outline handles it) */
 .ch{background:#dbeeff;color:#0a2a4a;text-align:center;padding:7px 4px;font-size:.76rem;font-weight:500;border-right:2.5px solid #222;border-bottom:2.5px solid #222;border-top:none;cursor:pointer}
