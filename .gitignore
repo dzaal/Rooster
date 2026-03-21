@@ -1,0 +1,24 @@
+# WordPress core — do not version control
+wp-admin/
+wp-includes/
+wp-*.php
+xmlrpc.php
+wp-config.php
+wp-config-sample.php
+license.txt
+readme.html
+
+# WordPress content — only version control custom items if needed
+wp-content/uploads/
+wp-content/cache/
+wp-content/upgrade/
+wp-content/backup*/
+
+# Security / server files
+wordfence-waf.php
+.htaccess
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.log

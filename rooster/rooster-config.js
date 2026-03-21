@@ -1,0 +1,38 @@
+window.ROOSTER_CONFIG = {
+  auth: {
+    accounts: [
+      {
+        email: 'dirk@digizaal.nl',
+        pin: '2026',
+        name: 'Dirk',
+        role: 'admin'
+      }
+    ]
+  },
+  crew: [
+    {name: 'Dirk', color: '#52b788'},
+    {name: 'SusyW', color: '#f4c430'},
+    {name: 'Chris', color: '#5a9fd4'},
+    {name: 'Fenna', color: '#e8739a'},
+    {name: 'Lijn', color: '#9b59b6'},
+    {name: 'Inge', color: '#18a7b5'},
+    {name: 'Dirk2', color: '#e43ed6'},
+    {name: 'Roland', color: '#2dbfd0'},
+    {name: 'Manon', color: '#55e08a'},
+    {name: 'Frankie', color: '#2f42e5'},
+    {name: 'Jos', color: '#e055e0'},
+    {name: 'Maud', color: '#c6e055'},
+    {name: 'Emma', color: '#55e057'},
+    {name: 'Niels', color: '#1a28c4'},
+    {name: 'Roos', color: '#e0559d'}
+  ],
+  defaults: {
+    shiftDurationMinutes: 120,
+    timeZone: 'Europe/Amsterdam',
+  googleClientId: '187727297128-08r7krnfdkojkmjnmq5jc0csvgbii7pm.apps.googleusercontent.com',
+  googleApiKey: 'AIzaSyB9nxpM86zV8JJNelQ5T_BuhcUWe1LlAdc',
+  googleCalendarId: 'f0a70a3f3862ea4c0202a62f4bd8b3298a1cd69d53e57944c0dcaeab39b54dc6@group.calendar.google.com',
+  calendarUrl: 'https://calendar.google.com/calendar/ical/f0a70a3f3862ea4c0202a62f4bd8b3298a1cd69d53e57944c0dcaeab39b54dc6%40group.calendar.google.com/public/basic.ics',
+  appointmentUrl: 'https://calendar.google.com/calendar/ical/f99b1ad32b1aa1f543623c166d7b74e45155aee446a941d7d0342b38b41da904%40group.calendar.google.com/public/basic.ics'
+}
+};

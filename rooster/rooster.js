@@ -1,0 +1,1681 @@
+const CONFIG = window.ROOSTER_CONFIG || { auth:{accounts:[]}, crew:[], defaults:{} };
+const ICS_ROOSTER  = CONFIG.defaults.calendarUrl || 'https://calendar.google.com/calendar/ical/f0a70a3f3862ea4c0202a62f4bd8b3298a1cd69d53e57944c0dcaeab39b54dc6%40group.calendar.google.com/public/basic.ics';
+const ICS_AFSPRAKEN= CONFIG.defaults.appointmentUrl || 'https://calendar.google.com/calendar/ical/f99b1ad32b1aa1f543623c166d7b74e45155aee446a941d7d0342b38b41da904%40group.calendar.google.com/public/basic.ics';
+const ICS = ICS_ROOSTER; // backward compat
+
+// Each proxy function receives the exact ICS URL to fetch
+const PROXIES = [
+  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  url => `proxy.php?url=${encodeURIComponent(url)}`,
+];
+
+const LOCAL_STORAGE_KEY = 'parknest_rooster_local_shifts';
+let localShifts = [];
+let loggedInUser = null;
+
+function loadLocalShifts(){
+  try { const raw = localStorage.getItem(LOCAL_STORAGE_KEY); localShifts = raw ? JSON.parse(raw) : []; } catch(e){ localShifts=[]; }
+}
+function saveLocalShifts(){ localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(localShifts)); }
+function showShareToast(msg){
+  let t=document.getElementById('shareToast');
+  if(!t){
+    t=document.createElement('div');
+    t.id='shareToast';
+    document.body.appendChild(t);
+  }
+  t.textContent=msg;
+  t.classList.add('on');
+  clearTimeout(t._hide);
+  t._hide=setTimeout(()=>t.classList.remove('on'),3000);
+}
+function hasGoogleConfig(){ return !!(CONFIG.defaults.googleClientId && CONFIG.defaults.googleApiKey && CONFIG.defaults.googleCalendarId); }
+let googleClientLoaded = false;
+let googleSignedIn = false;
+function crewColor(name){ const user = CONFIG.crew.find(c=>c.name.toLowerCase()===name.toLowerCase()); return user?.color || PALETTES[nameHash(name)][0] || '#dbeeff'; }
+function localShiftToEvent(shift){ const start = new Date(shift.start); const end = new Date(shift.end); return { title: shift.title, desc: shift.desc||'', location: shift.location||'', start, end, uid: shift.id || `local-${Date.now()}-${Math.random().toString(36).slice(2,8)}`, _cal:'custom', localId: shift.id } }
+function mergeLocalShifts(evList){ return [...evList, ...localShifts.filter(s=>s.active!==false).map(localShiftToEvent)]; }
+
+async function loadGoogleClient(){
+  if(!hasGoogleConfig()) return;
+  if(googleClientLoaded) return;
+  await new Promise((resolve,reject)=>{
+    if(window.gapi){ resolve(); return; }
+    const s=document.createElement('script');
+    s.src='https://apis.google.com/js/api.js';
+    s.onload=resolve; s.onerror=reject;
+    document.head.appendChild(s);
+  });
+  await new Promise(resolve=>gapi.load('client:auth2',resolve));
+  try {
+    await gapi.client.init({
+      apiKey: CONFIG.defaults.googleApiKey,
+      clientId: CONFIG.defaults.googleClientId,
+      discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest'],
+      scope: 'https://www.googleapis.com/auth/calendar'
+    });
+  } catch(err) {
+    console.error('Google client init failed', err);
+    let msg = err?.details?.[0]?.message || err?.result?.error?.message || err?.message || 'Onbekende fout';
+    if(msg.toLowerCase().includes('idpiframe_initialization_failed')){
+      msg = 'idpiframe_initialization_failed: Oorsprong niet toegestaan. Voeg je site (http://localhost:8000 of https://parknest.nl) als geautoriseerde JavaScript-origin in Google Cloud in.';
+    }
+    alert('Google Calendar API initialisatie mislukt: '+msg+'\n\nControleer in Google Cloud: API ingeschakeld, juiste sleutel, referrer.');
+    googleClientLoaded=false;
+    return;
+  }
+  googleClientLoaded=true;
+  googleSignedIn = gapi.auth2.getAuthInstance().isSignedIn.get();
+}
+
+async function signInGoogle(){
+  if(!hasGoogleConfig()){ showShareToast('Google config ontbreekt. Stel googleClientId/APIKey/calendarId in rooster-config.js'); return; }
+  await loadGoogleClient();
+  try{
+    const auth= gapi.auth2.getAuthInstance();
+    await auth.signIn();
+    googleSignedIn=true;
+    const profile = auth.currentUser.get().getBasicProfile();
+    loggedInUser = {
+      name: profile.getName() || profile.getEmail(),
+      email: profile.getEmail(),
+      role: 'member'
+    };
+    showShareToast('Google ingelogd als ' + loggedInUser.email);
+    updateAuthUI();
+  }catch(e){
+    console.error(e);
+    const msg = e?.error || e?.details || e?.result?.error?.message || 'Google inloggen mislukt.';
+    alert('Google inloggen mislukt: '+msg);
+    googleSignedIn=false;
+    updateAuthUI();
+  }
+}
+
+function signOutGoogle(){
+  if(googleClientLoaded && gapi.auth2.getAuthInstance().isSignedIn.get()){
+    gapi.auth2.getAuthInstance().signOut();
+  }
+  googleSignedIn=false;
+  loggedInUser = null;
+  updateAuthUI();
+}
+
+async function insertEventInGoogle(shift){
+  if(!googleSignedIn) return null;
+  if(!hasGoogleConfig()) return null;
+  const event={
+    summary: shift.title,
+    description: shift.desc || '',
+    location: shift.location || '',
+    start:{ dateTime: shift.start, timeZone: CONFIG.defaults.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone },
+    end:{ dateTime: shift.end, timeZone: CONFIG.defaults.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone },
+    reminders:{useDefault:true}
+  };
+  const resp=await gapi.client.calendar.events.insert({ calendarId: CONFIG.defaults.googleCalendarId, resource: event });
+  return resp.result.id;
+}
+
+async function deleteEventInGoogle(eventId){
+  if(!googleSignedIn || !eventId) return;
+  try{
+    await gapi.client.calendar.events.delete({ calendarId: CONFIG.defaults.googleCalendarId, eventId });
+  }catch(e){ console.warn('Google delete failed',e); }
+}
+
+const SKIP=2;
+const DS=['Zo','Ma','Di','Wo','Do','Vr','Za'];
+const DL=['Zondag','Maandag','Dinsdag','Woensdag','Donderdag','Vrijdag','Zaterdag'];
+const MN=['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
+const HH=22; // px per hour on screen
+
+let allEv=[],vm='week',anc=sowk(new Date());
+
+// Compute dynamic start/end hour from a set of events (+1 margin each side)
+// Excludes afspraken and all-day events (those are shown in the allday row)
+function dynamicHours(evList){
+  let minH=23,maxH=0;
+  evList.forEach(ev=>{
+    if(ev.start._ad||ev.end?._ad)return;
+    if(ev._cal==='afspraken')return; // shown in allday row, not in time grid
+    const sh=ev.start.getHours()+ev.start.getMinutes()/60;
+    // Skip events starting at or after 23:00 — they are rare edge cases and
+    // should not force the whole grid to extend; they still render via absolute positioning
+    if(sh>=23)return;
+    const eh=ev.end?(ev.end.getHours()+ev.end.getMinutes()/60):sh+1;
+    // Cap individual event end at 23 so a midnight-crossing end-time doesn't pull the grid up
+    const clampedEh=Math.min(23,eh<sh?sh+1:eh);
+    if(sh<minH)minH=sh;
+    if(clampedEh>maxH)maxH=clampedEh;
+  });
+  if(minH>maxH){minH=8;maxH=18;} // fallback when no timed events
+  // End = next full hour at or after (latest event end + 1h), max 23 rows shown
+  return{sh:Math.max(0,Math.floor(minH)), eh:Math.min(23,Math.ceil(maxH)+1)};
+}
+
+function sowk(d){const c=new Date(d),dw=c.getDay(),df=dw===0?-6:1-dw;c.setDate(c.getDate()+df);c.setHours(0,0,0,0);return c}
+function addD(d,n){const c=new Date(d);c.setDate(c.getDate()+n);return c}
+function same(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate()}
+function p2(n){return String(n).padStart(2,'0')}
+
+function pDate(line){
+  const col=line.indexOf(':'),raw=line.slice(col+1).trim();
+  const isD=line.includes('VALUE=DATE')||raw.length===8;
+  if(isD){const y=+raw.slice(0,4),m=+raw.slice(4,6)-1,d=+raw.slice(6,8);const dt=new Date(y,m,d);dt._ad=true;return dt}
+  const y=+raw.slice(0,4),mo=+raw.slice(4,6)-1,d=+raw.slice(6,8),h=+raw.slice(9,11),mi=+raw.slice(11,13),s=+(raw.slice(13,15)||'0');
+  // Z suffix = UTC, convert to local
+  if(raw.endsWith('Z')) return new Date(Date.UTC(y,mo,d,h,mi,s));
+  // TZID present: treat as local time in that timezone using ISO string trick
+  const tzMatch=line.match(/TZID=([^:;,]+)/);
+  if(tzMatch){
+    try{
+      // Build an ISO string and force-interpret in the given TZ
+      const isoStr=`${y}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}T${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}:${String(s).padStart(2,'00')}`;
+      // Use Temporal-style trick: format a known UTC time in the target TZ and find the offset
+      const refUTC=new Date(Date.UTC(y,mo,d,h,mi,s));
+      const localStr=refUTC.toLocaleString('en-US',{timeZone:tzMatch[1],hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      // localStr looks like "04/01/2026, 21:00:00" when UTC 19:00 → AMS 21:00 (CEST)
+      const [datePart,timePart]=localStr.split(', ');
+      const [lmo,ld,ly]=datePart.split('/').map(Number);
+      const [lh,lmi,ls]=timePart.split(':').map(Number);
+      // offset = local-interpreted h minus what TZ gave us
+      const diffMs=(new Date(ly,lmo-1,ld,lh,lmi,ls)-new Date(y,mo,d,h,mi,s));
+      return new Date(Date.UTC(y,mo,d,h,mi,s)-diffMs);
+    }catch(e){
+      return new Date(y,mo,d,h,mi,s);
+    }
+  }
+  // No Z, no TZID: treat as local time (already correct for browser's local TZ)
+  return new Date(y,mo,d,h,mi,s);
+}
+
+function parseICS(txt){
+  const evs=[],lines=txt.replace(/\r\n /g,'').replace(/\r\n\t/g,'').split(/\r\n|\r|\n/);
+  let ev=null;
+  for(const raw of lines){
+    const l=raw.trim();
+    if(l==='BEGIN:VEVENT'){ev={};continue}
+    if(l==='END:VEVENT'){if(ev&&ev.start)evs.push(ev);ev=null;continue}
+    if(!ev)continue;
+    const c=l.indexOf(':');if(c<0)continue;
+    const k=l.slice(0,c).replace(/;.*/,'').toUpperCase(),v=l.slice(c+1).trim();
+    if(k==='SUMMARY')ev.title=v;
+    if(k==='DESCRIPTION')ev.desc=v.replace(/\\n/g,'\n').replace(/\\,/g,',');
+    if(k==='LOCATION')ev.location=v;
+    if(k==='DTSTART'||l.startsWith('DTSTART'))ev.start=pDate(l);
+    if(k==='DTEND'||l.startsWith('DTEND'))ev.end=pDate(l);
+    if(k==='RRULE')ev.rrule=v;
+    if(k==='UID')ev.uid=v;
+    if(k==='RECURRENCE-ID'||l.startsWith('RECURRENCE-ID'))ev.recurId=pDate(l);
+    if(k==='EXDATE'||l.startsWith('EXDATE')){
+      // EXDATE may be comma-separated; each value may have TZID on the property
+      const vals=v.split(',');
+      const exDates=vals.map(d=>pDate(l.slice(0,l.indexOf(':'))+'DTSTART:'+d.trim()));
+      ev.exdates=(ev.exdates||[]).concat(exDates);
+    }
+  }
+  return evs;
+}
+
+const BD={MO:1,TU:2,WE:3,TH:4,FR:5,SA:6,SU:0};
+function expand(ev,rs,re){
+  if(!ev.rrule)return[ev];
+  const p={};ev.rrule.split(';').forEach(x=>{const[k,v]=x.split('=');p[k]=v});
+  const freq=p.FREQ,until=p.UNTIL?pDate('DTSTART:'+p.UNTIL):null;
+  const cnt=p.COUNT?+p.COUNT:9999,iv=p.INTERVAL?+p.INTERVAL:1;
+
+  // Parse BYDAY — may have position prefix like 1WE, -1FR etc.
+  let byday=null,bydayPos=null;
+  if(p.BYDAY){
+    const parts=p.BYDAY.split(',');
+    byday=parts.map(x=>BD[x.replace(/[^A-Z]/g,'')]);
+    bydayPos=parts.map(x=>{const m=x.match(/^(-?\d+)/);return m?+m[1]:0;});
+  }
+
+  // Duration in ms — for all-day events use 1 day, for timed use actual diff
+  const isAD=ev.start._ad;
+  const dur=isAD?86400000:(ev.end&&ev.start?ev.end.getTime()-ev.start.getTime():3600000);
+
+  // Build exclusion sets: one for full datetime, one for date-only (for safety)
+  const exSetDT=new Set((ev.exdates||[]).map(d=>{
+    if(d._ad) return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}-${d.getMinutes()}`;
+  }));
+  const exSetDate=new Set((ev.exdates||[]).map(d=>`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`));
+
+  function isExcluded(d){
+    const dateKey=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const dtKey=`${dateKey}-${d.getHours()}-${d.getMinutes()}`;
+    // For timed recurring events, match by datetime; for all-day match by date
+    if(isAD) return exSetDate.has(dateKey);
+    // Match by full datetime first, then fall back to date-only if exdate was all-day
+    return exSetDT.has(dtKey) || exSetDT.has(dateKey);
+  }
+
+  const res=[];let cur=new Date(ev.start),n=0;
+  // For all-day events, work with date-only (strip time)
+  if(isAD) cur.setHours(0,0,0,0);
+  // Safety: if starting well before range, fast-forward by frequency
+  // to avoid thousands of iterations (but still count them for COUNT limit)
+  if(freq==='WEEKLY'&&iv===1&&cur<rs){
+    const weeksBack=Math.floor((rs-cur)/(7*86400000));
+    if(weeksBack>2){
+      n+=weeksBack-2;
+      cur=addD(cur,7*(weeksBack-2));
+    }
+  } else if(freq==='MONTHLY'&&iv===1&&cur<rs){
+    const monthsBack=Math.max(0,(rs.getFullYear()-cur.getFullYear())*12+(rs.getMonth()-cur.getMonth())-2);
+    if(monthsBack>0){
+      n+=monthsBack;
+      cur=new Date(cur.getFullYear(),cur.getMonth()+monthsBack,cur.getDate(),cur.getHours(),cur.getMinutes(),0);
+    }
+  }
+
+  // Helper: does date d match BYDAY with optional position for given month?
+  function matchesByday(d){
+    if(!byday)return true;
+    for(let i=0;i<byday.length;i++){
+      if(d.getDay()!==byday[i])continue;
+      const pos=bydayPos?bydayPos[i]:0;
+      if(!pos)return true; // no position constraint
+      if(pos>0){
+        let count=0,dd=new Date(d.getFullYear(),d.getMonth(),1);
+        while(dd.getMonth()===d.getMonth()){
+          if(dd.getDay()===byday[i])count++;
+          if(dd.getDate()===d.getDate())return count===pos;
+          dd.setDate(dd.getDate()+1);
+        }
+      } else {
+        let last=null,dd=new Date(d.getFullYear(),d.getMonth(),1);
+        while(dd.getMonth()===d.getMonth()){
+          if(dd.getDay()===byday[i])last=new Date(dd);
+          dd.setDate(dd.getDate()+1);
+        }
+        if(last&&last.getDate()===d.getDate())return true;
+      }
+    }
+    return false;
+  }
+
+  while(cur<=re&&n<cnt){
+    if(until&&cur>until)break;
+    if(matchesByday(cur)){
+      if(cur>=rs&&!isExcluded(cur)){
+        const newStart=new Date(cur);
+        if(isAD) newStart._ad=true;
+        const newEnd=new Date(cur.getTime()+dur);
+        if(ev.end&&ev.end._ad) newEnd._ad=true;
+        res.push({...ev,start:newStart,end:newEnd});
+      }
+      n++; // count ALL occurrences (not just in-range), to respect COUNT limit
+    }
+    if(freq==='DAILY') cur=addD(cur,iv);
+    else if(freq==='WEEKLY'){
+      if(byday&&byday.length>1&&bydayPos&&!bydayPos.some(x=>x)){
+        let nx=addD(cur,1);
+        for(let i=0;i<7;i++){if(byday.includes(nx.getDay()))break;nx=addD(nx,1)}
+        cur=nx;
+      } else cur=addD(cur,7*iv);
+    } else if(freq==='MONTHLY'){
+      const hasPos=bydayPos&&bydayPos.some(x=>x);
+      const hasByday=byday&&byday.length>0;
+      // Advance to first day of next month, preserving original hours/minutes
+      const origH=ev.start.getHours(), origM=ev.start.getMinutes();
+      if(hasByday){
+        const nextMonth=new Date(cur.getFullYear(),cur.getMonth()+iv,1,origH,origM,0);
+        let found=false;
+        for(let dd=0;dd<31&&!found;dd++){
+          const t=new Date(nextMonth.getFullYear(),nextMonth.getMonth(),1+dd,origH,origM,0);
+          if(t.getMonth()!==nextMonth.getMonth())break;
+          if(matchesByday(t)){cur=t;found=true;}
+        }
+        if(!found)cur=addD(cur,30);
+      } else {
+        cur=new Date(cur.getFullYear(),cur.getMonth()+iv,cur.getDate(),origH,origM,0);
+      }
+    } else if(freq==='YEARLY'){
+      const origH=ev.start.getHours(),origM=ev.start.getMinutes();
+      cur=new Date(cur.getFullYear()+iv,cur.getMonth(),cur.getDate(),origH,origM,0);
+    } else {
+      cur=addD(cur,1); // unknown: avoid infinite loop
+    }
+  }
+  if(ev.rrule) return res;
+  return res.length?res:[ev];
+}
+
+function showSkeleton(){
+  const nCols=6, nRows=8;
+  let h=`<div class="skel-wrap">`;
+  h+=`<div class="skel-hdr"><div class="skel-hdr-time"></div>`;
+  for(let i=0;i<nCols;i++)h+=`<div class="skel-hdr-day"></div>`;
+  h+=`</div>`;
+  for(let r=0;r<nRows;r++){
+    h+=`<div class="skel-row"><div class="skel-time"></div>`;
+    for(let c=0;c<nCols;c++){
+      const hasEv=(r===1&&c===0)||(r===2&&c===2)||(r===4&&c===1)||(r===5&&c===4)||(r===3&&c===3);
+      h+=`<div class="skel-cell${hasEv?' has-ev':''}"></div>`;
+    }
+    h+=`</div>`;
+  }
+  h+=`</div>`;
+  const el=document.getElementById('skelLoad')||document.getElementById('panelCur');
+  if(el)el.innerHTML=h;
+}
+
+async function tryFetch(proxyFn, url) {
+  const r = await fetch(proxyFn(url), {signal: AbortSignal.timeout(5000)});
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const t = await r.text();
+  if (!t.includes('BEGIN:VCALENDAR')) throw new Error('Geen geldige ICS data');
+  return t;
+}
+
+async function fetchEvents(){
+  document.getElementById('ls').textContent='Laden…';
+  showSkeleton();
+
+  async function fetchOne(icsUrl, tag){
+    const text = await Promise.any(PROXIES.map(fn => tryFetch(fn, icsUrl)));
+    return parseICS(text).map(ev=>({...ev,_cal:tag}));
+  }
+
+  try {
+    const [rooster, afspraken] = await Promise.allSettled([
+      fetchOne(ICS_ROOSTER,  'rooster'),
+      fetchOne(ICS_AFSPRAKEN,'afspraken'),
+    ]);
+
+    const rEv  = rooster.status==='fulfilled'   ? rooster.value   : [];
+    const aEv  = afspraken.status==='fulfilled' ? afspraken.value : [];
+
+    // Deduplicate: if afspraken returns rooster events (same UID), discard from afspraken
+    const roosterUIDs = new Set(rEv.map(e=>e.uid).filter(Boolean));
+    const aEvFiltered = aEv.filter(e=>!e.uid || !roosterUIDs.has(e.uid));
+
+    const combined = [...rEv, ...aEvFiltered];
+
+    // Normalize UID for matching — strip _R... suffix (detached series notation)
+    function baseUID(uid){ return uid ? uid.replace(/_R\d{8}T\d+$/, '') : ''; }
+
+    // Separate override events (have RECURRENCE-ID) from base events
+    const overrides  = combined.filter(e => e.recurId);
+    const baseEvents = combined.filter(e => !e.recurId);
+
+    // For each override, add its recurId date as EXDATE on the matching base series
+    overrides.forEach(ov => {
+      if(!ov.uid) return;
+      const buid = baseUID(ov.uid);
+      // Find ALL base recurring events with matching UID (there may be several series)
+      const bases = baseEvents.filter(b => b.rrule && baseUID(b.uid) === buid);
+      bases.forEach(base => {
+        base.exdates = base.exdates || [];
+        base.exdates.push(ov.recurId);
+      });
+    });
+
+    loadLocalShifts();
+    allEv = mergeLocalShifts([...baseEvents, ...overrides]);
+
+    const rCount=rEv.length, aCount=aEvFiltered.length;
+    document.getElementById('ls').textContent=`✓ ${rCount}+${aCount} event(s)`;
+    render(0);
+  } catch(e) {
+    document.getElementById('ls').textContent='⚠ Laden mislukt';
+    document.getElementById('panelCur').innerHTML=`
+    <div class="err-box">
+      <h3>📡 Kalender kon niet worden geladen</h3>
+      <p>Alle CORS-proxies zijn geblokkeerd of onbereikbaar. Dit is een browser-beveiligingsbeperking bij het lokaal openen van het HTML-bestand.</p>
+      <p style="margin-top:10px"><strong>Oplossingen (kies één):</strong></p>
+      <ol>
+        <li><strong>Op Plesk/server zetten</strong> – Upload dit bestand naar je webserver. Voeg dan een PHP-proxy toe (zie knop hieronder).</li>
+        <li><strong>Lokaal via webserver</strong> – Open via <code>localhost</code> i.p.v. direct als bestand.</li>
+        <li><strong>PHP-proxy gebruiken</strong> – Maak een bestand <code>proxy.php</code> op je server (knop hieronder).</li>
+      </ol>
+      <p style="margin-top:12px">
+        <button onclick="showPhpCode()" style="background:var(--gm);color:#fff;border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;font-size:.82rem">
+          📄 Toon proxy.php code
+        </button>
+        <button onclick="retryLoad()" style="background:var(--am);color:var(--gd);border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;font-size:.82rem;margin-left:8px">
+          🔄 Opnieuw proberen
+        </button>
+      </p>
+      <pre id="phpCode" style="display:none;margin-top:14px;background:#f0f4f0;border-radius:8px;padding:14px;font-size:.74rem;overflow-x:auto;white-space:pre;border:1px solid var(--gp)"></pre>
+    </div>`;
+  }
+}
+
+function retryLoad(){ showSkeleton(); fetchEvents(); }
+
+function showPhpCode(){
+  const el=document.getElementById('phpCode');
+  el.style.display=el.style.display==='none'?'block':'none';
+  el.textContent=`<?php
+// proxy.php — sla dit op naast parknest-rooster.html op je Plesk server
+$ics_url = 'https://calendar.google.com/calendar/ical/f0a70a3f3862ea4c0202a62f4bd8b3298a1cd69d53e57944c0dcaeab39b54dc6%40group.calendar.google.com/public/basic.ics';
+
+// Cache 15 minuten
+$cache_file = sys_get_temp_dir() . '/parknest_ics_cache.txt';
+$cache_time = 900;
+
+if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time) {
+    $data = file_get_contents($cache_file);
+} else {
+    $data = file_get_contents($ics_url);
+    if ($data !== false) file_put_contents($cache_file, $data);
+}
+
+header('Content-Type: text/calendar; charset=UTF-8');
+header('Access-Control-Allow-Origin: *');
+header('Cache-Control: max-age=900');
+echo $data;`;
+}
+
+function updateAuthUI(){
+  const info=document.getElementById('loginInfo');
+  const logoutBtn=document.getElementById('logoutBtn');
+  const googleBtn=document.getElementById('googleBtn');
+  const googleStatus=document.getElementById('googleStatus');
+  const editor=document.getElementById('editorPanel');
+
+  if(loggedInUser){
+    info.textContent=`Ingelogd als ${loggedInUser.name} (${loggedInUser.email})`;
+    logoutBtn.style.display='inline-flex';
+    editor.style.display='block';
+  } else {
+    info.textContent='Niet ingelogd';
+    logoutBtn.style.display='none';
+    editor.style.display='none';
+  }
+
+  if(hasGoogleConfig()){
+    googleBtn.style.display='inline-flex';
+    if(googleSignedIn){
+      googleStatus.textContent='Google: ingelogd';
+      googleStatus.style.color='#0a7a0a';
+    } else {
+      googleStatus.textContent='Google: niet ingelogd';
+      googleStatus.style.color='#7a1f1f';
+    }
+  } else {
+    googleBtn.style.display='none';
+    googleStatus.textContent='';
+  }
+}
+
+function showCrewLegend(){
+  const el=document.getElementById('crewLegend');
+  if(!el)return;
+  // Hide chips and use the crew pulldown selector instead.
+  el.style.display='none';
+}
+
+function populateCrewPicker(){
+  const picker=document.getElementById('crewPicker');
+  if(!picker)return;
+  picker.innerHTML='';
+  CONFIG.crew.forEach(c=>{
+    const opt=document.createElement('option');opt.value=c.name;opt.textContent=c.name;picker.appendChild(opt);
+  });
+}
+
+function logoutAction(){ loggedInUser=null; updateAuthUI(); }
+
+async function addShiftAction(){
+  if(!loggedInUser){ alert('Log in via Google om diensten toe te voegen.'); return; }
+  const date=document.getElementById('newShiftDate').value;
+  const start=document.getElementById('newShiftStart').value;
+  const end=document.getElementById('newShiftEnd').value;
+  const crew=document.getElementById('crewPicker').value;
+  if(!date||!start||!end||!crew){ alert('Vul datum, start, eind en crew in.'); return; }
+  const dtStart=new Date(`${date}T${start}`);
+  const dtEnd=new Date(`${date}T${end}`);
+  if(dtEnd<=dtStart){ alert('Eindtijd moet na starttijd zijn.'); return; }
+  const newShift={
+    id:`local-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+    title: crew,
+    desc: `Toegevoegd door ${loggedInUser.email}`,
+    start: dtStart.toISOString(),
+    end: dtEnd.toISOString(),
+    location: 'Parknest',
+    active: true
+  };
+
+  if(hasGoogleConfig()){
+    try{
+      await loadGoogleClient();
+      if(googleSignedIn){
+        const eventId=await insertEventInGoogle(newShift);
+        if(eventId){ newShift.googleEventId=eventId; showShareToast('Dienst in Google Agenda toegevoegd.'); }
+      }
+    } catch(e){ console.warn('Google add failed',e); }
+  }
+
+  localShifts.push(newShift);
+  saveLocalShifts();
+  fetchEvents();
+  showShareToast(`Dienst toegevoegd voor ${crew} op ${date}`);
+}
+
+function deleteLocalShift(localId){
+  const shift = localShifts.find(s=>s.id===localId);
+  if(shift?.googleEventId && googleSignedIn && hasGoogleConfig()){
+    deleteEventInGoogle(shift.googleEventId);
+  }
+  localShifts = localShifts.filter(s=>s.id!==localId);
+  saveLocalShifts();
+  fetchEvents();
+}
+
+function initEditFeatures(){
+  document.getElementById('logoutBtn').addEventListener('click', logoutAction);
+  const googleBtn=document.getElementById('googleBtn');
+  googleBtn?.addEventListener('click', async()=>{
+    if(googleSignedIn){ signOutGoogle(); } else { await signInGoogle(); }
+  });
+  document.getElementById('addShiftBtn').addEventListener('click', addShiftAction);
+  document.getElementById('newShiftDate').value = (new Date()).toISOString().slice(0,10);
+  populateCrewPicker();
+  showCrewLegend();
+  updateAuthUI();
+}
+
+function hasTuesdayEvents(anchorDate){
+  // Check if any event in allEv falls on a Tuesday of this week
+  const tue=addD(anchorDate,1); // anchor is Monday, +1 = Tuesday
+  tue.setHours(0,0,0,0);
+  const tueEnd=new Date(tue);tueEnd.setHours(23,59,59,999);
+  return allEv.some(ev=>{
+    if(!ev.start)return false;
+    const evStart=new Date(ev.start);evStart.setHours(0,0,0,0);
+    if(same(evStart,tue))return true;
+    // Check recurring
+    if(ev.rrule){
+      const copies=expand(ev,tue,tueEnd);
+      return copies.some(c=>{const s=new Date(c.start);s.setHours(0,0,0,0);return same(s,tue)});
+    }
+    return false;
+  });
+}
+
+// Returns column definitions: one per visible day, no merging
+function getColDefs(anchorDate){
+  if(vm==='day') return [{days:[new Date(anchorDate)],narrow:false}];
+  const showTue=hasTuesdayEvents(anchorDate);
+  const week=[];for(let i=0;i<7;i++)week.push(addD(anchorDate,i));
+  return week
+    .filter(d=> showTue || d.getDay()!==2)
+    .map(d=>({days:[d],narrow:false}));
+}
+
+function getDays(){
+  if(vm==='day') return [new Date(anc)];
+  const showTue=hasTuesdayEvents(anc);
+  const week=[];for(let i=0;i<7;i++)week.push(addD(anc,i));
+  if(!showTue)return week.filter(d=>d.getDay()!==2);
+  return week;
+}
+
+function isPhone(){ return window.innerWidth < 600 && window.innerHeight > window.innerWidth; }
+function isPhoneLandscape(){ return window.innerWidth < 900 && window.innerHeight < 500 && window.innerWidth > window.innerHeight; }
+function isSmall(){ return window.innerWidth >= 600 && window.innerWidth < 1000 && !isPhoneLandscape(); }
+
+// ── NAME-BASED COLOR ────────────────────────────────────
+// 12 distinct accessible pastel palettes: [bg, text, accent]
+const PALETTES=[
+  ['#d8f3dc','#1b4332','#52b788'],
+  ['#fff3cd','#6b4c00','#e9a825'],
+  ['#d0e8ff','#003566','#5a9fd4'],
+  ['#f9d5e5','#6b0f38','#e8739a'],
+  ['#ede0ff','#2d0060','#9b59b6'],
+  ['#fce8d5','#6b2d0c','#e07b39'],
+  ['#d4f1f4','#0b3a40','#18a7b5'],
+  ['#fde8e8','#6b0000','#e05555'],
+  ['#e8f5e9','#1b5e20','#66bb6a'],
+  ['#fff8e1','#4a3900','#f4c430'],
+  ['#e8eaf6','#1a237e','#5c6bc0'],
+  ['#fce4ec','#4a0020','#e91e8c'],
+];
+
+function nameHash(str){
+  let h=0;
+  for(let i=0;i<str.length;i++)h=(h*31+str.charCodeAt(i))>>>0;
+  return h%PALETTES.length;
+}
+
+function hexToRgb(hex){
+  const h=hex.replace('#','');
+  if(h.length===3) return [parseInt(h[0]+h[0],16),parseInt(h[1]+h[1],16),parseInt(h[2]+h[2],16)];
+  return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];
+}
+function contrastTextColor(hex){
+  const [r,g,b]=hexToRgb(hex);
+  // YIQ formula
+  const yiq=(r*299+g*587+b*114)/1000;
+  return yiq>=150?'#111':'#fff';
+}
+function applyColor(dv, title){
+  const name=String(title||'').trim();
+  const crewItem = CONFIG.crew.find(c=>c.name.toLowerCase()===name.toLowerCase());
+  if(crewItem){
+    dv.style.background=crewItem.color;
+    dv.style.color=contrastTextColor(crewItem.color);
+    dv.style.borderLeftColor=crewItem.color;
+    return;
+  }
+  const [bg,tx,ac]=PALETTES[nameHash(title||'')];
+  dv.style.background=bg;
+  dv.style.color=tx;
+  dv.style.borderLeftColor=ac;
+}
+
+function renderInto(container, anchorDate){
+  const colDefs=getColDefs(anchorDate);
+  const days=colDefs.flatMap(c=>c.days); // all dates for expand
+  const today=new Date();today.setHours(0,0,0,0);
+  const rs=new Date(days[0]);rs.setHours(0,0,0,0);
+  const re=new Date(days[days.length-1]);re.setHours(23,59,59,999);
+  const exp=[];
+  for(const ev of allEv)exp.push(...expand(ev,rs,re));
+  const byDay={};days.forEach(d=>byDay[d.toDateString()]=[]);
+  exp.forEach(ev=>{const ds=new Date(ev.start);ds.setHours(0,0,0,0);const k=ds.toDateString();if(byDay[k]!==undefined)byDay[k].push(ev)});
+  const {sh,eh}=dynamicHours(exp);
+  const cm={};let ci=0;
+
+  if(vm==='week' && isPhoneLandscape()){
+    // Phone landscape: show full week as 3+3 split (like tablet)
+    const row1=colDefs.slice(0,3);
+    const row2=colDefs.slice(3);
+    container.innerHTML=`<div class="split-wrap"><div id="sgA"></div><div id="sgB"></div></div>`;
+    buildGrid(container.querySelector('#sgA'),row1,today,exp,cm,ci,byDay,sh,eh);
+    buildGrid(container.querySelector('#sgB'),row2,today,exp,cm,ci,byDay,sh,eh);
+  } else if(vm==='week' && isSmall()){
+    const showTue=hasTuesdayEvents(anchorDate);
+    if(showTue){
+      const allDays=colDefs.map(c=>c.days[0]);
+      const weekendDays=allDays.filter(d=>d.getDay()===6||d.getDay()===0);
+      const nonWeekend=colDefs.filter(c=>c.days[0].getDay()!==6&&c.days[0].getDay()!==0);
+      const row1=nonWeekend.slice(0,3);
+      const row2=nonWeekend.slice(3);
+      container.innerHTML=`<div class="split-wrap"><div id="sgA"></div><div id="sgB2"></div></div>`;
+      buildGrid(container.querySelector('#sgA'),row1,today,exp,cm,ci,byDay,sh,eh);
+      buildGridWithCompact(container.querySelector('#sgB2'),row2,weekendDays,today,exp,cm,ci,byDay,sh,eh);
+    } else {
+      const row1=colDefs.slice(0,3);
+      const row2=colDefs.slice(3);
+      container.innerHTML=`<div class="split-wrap"><div id="sgA"></div><div id="sgB"></div></div>`;
+      buildGrid(container.querySelector('#sgA'),row1,today,exp,cm,ci,byDay,sh,eh);
+      buildGrid(container.querySelector('#sgB'),row2,today,exp,cm,ci,byDay,sh,eh);
+    }
+  } else if(vm==='week' && isPhone()){
+    // Phone portrait: 3 rows × 2 cols (+ optional 4th row for Zo when Tue active)
+    // Same split-wrap pattern as tablet but 2 cols per row instead of 3
+    // colDefs: without Tue = [Ma,Wo,Do,Vr,Za,Zo] (6), with Tue = [Ma,Di,Wo,Do,Vr,Za,Zo] (7)
+    const showTue=hasTuesdayEvents(anchorDate);
+    const ids=['sgP0','sgP1','sgP2','sgP3'];
+    let rows;
+    if(!showTue){
+      // 6 cols → 3 rows of 2: [Ma,Wo] [Do,Vr] [Za,Zo]
+      rows=[colDefs.slice(0,2),colDefs.slice(2,4),colDefs.slice(4,6)];
+    } else {
+      // 7 cols → [Ma,Di] [Wo,Do] [Vr,Za] [Zo]
+      rows=[colDefs.slice(0,2),colDefs.slice(2,4),colDefs.slice(4,6),colDefs.slice(6,7)];
+    }
+    const divs=rows.map((_,i)=>`<div id="${ids[i]}"></div>`).join('');
+    container.innerHTML=`<div class="split-wrap">${divs}</div>`;
+    rows.forEach((rowCols,i)=>{
+      buildGrid(container.querySelector('#'+ids[i]),rowCols,today,exp,cm,ci,byDay,sh,eh);
+    });
+  } else {
+    container.innerHTML=`<div class="cw"><div id="cg"></div></div>`;
+    const cg=container.querySelector('#cg');
+    cg.style.borderRadius='0';cg.style.overflow='visible';
+    cg.style.boxShadow='var(--sh)';cg.style.background='#fff';cg.style.margin='0 auto';
+    cg.style.maxWidth='100%';
+    buildGrid(cg,colDefs,today,exp,cm,ci,byDay,sh,eh);
+  }
+}
+
+function render(dir=0){
+  const step = vm==='week' ? 7 : 1;
+  const inner  = document.getElementById('slideInner');
+  const panCur = document.getElementById('panelCur');
+  const panPrev= document.getElementById('panelPrev');
+  const panNext= document.getElementById('panelNext');
+
+  if(dir===0 || !inner){
+    // Initial load — no animation
+    renderInto(panCur, anc);
+    inner.style.transition='none';
+    inner.style.transform='translateX(-100%)';
+    updateLabel();
+    return;
+  }
+
+  // Pre-render adjacent panel
+  if(dir>0){
+    renderInto(panNext, anc);
+    inner.style.transition='none';
+    inner.style.transform='translateX(-100%)'; // show current
+    panNext.offsetHeight; // force reflow
+    inner.style.transition='transform .28s cubic-bezier(.4,0,.2,1)';
+    inner.style.transform='translateX(-200%)'; // slide to next
+  } else {
+    renderInto(panPrev, anc);
+    inner.style.transition='none';
+    inner.style.transform='translateX(-100%)';
+    panPrev.offsetHeight;
+    inner.style.transition='transform .28s cubic-bezier(.4,0,.2,1)';
+    inner.style.transform='translateX(0%)'; // slide to prev
+  }
+
+  inner.addEventListener('transitionend', function onDone(){
+    inner.removeEventListener('transitionend', onDone);
+    // Move rendered content into center panel
+    panCur.innerHTML = (dir>0 ? panNext : panPrev).innerHTML;
+    panPrev.innerHTML='';
+    panNext.innerHTML='';
+    inner.style.transition='none';
+    inner.style.transform='translateX(-100%)';
+    updateLabel();
+    updateWeekStrip();
+  }, {once:true});
+}
+
+function updateLabel(){
+  const days=getDays().sort((a,b)=>a-b);
+  if(vm==='day'){const d=days[0];document.getElementById('pl').textContent=`${DL[d.getDay()]} ${d.getDate()} ${MN[d.getMonth()]} ${d.getFullYear()}`}
+  else{const s=days[0],e=days[days.length-1];document.getElementById('pl').textContent=`${s.getDate()} – ${e.getDate()} ${MN[e.getMonth()]} ${e.getFullYear()}`}
+}
+
+function scrollToToday(){
+  requestAnimationFrame(()=>{
+    const now=new Date();
+    const curH=now.getHours()+now.getMinutes()/60;
+    // Find the cell closest to current time in today's column
+    const todayKey=new Date();todayKey.setHours(0,0,0,0);
+    const key=todayKey.toDateString();
+    // Try to find a cell at current hour - 1 so the current time is visible with context
+    const targetH=Math.max(0,Math.floor(curH)-1);
+    let cell=document.querySelector(`[data-col="${key}"][data-h="${targetH}"]`);
+    // Fallback: find today header
+    if(!cell) cell=document.querySelector('.ch.tc');
+    if(cell) cell.scrollIntoView({behavior:'smooth',block:'start',inline:'nearest'});
+  });
+}
+
+// ── OVERLAP LAYOUT ─────────────────────────────────────
+function assignColumns(evList, maxCols=3){
+  const sorted=[...evList].sort((a,b)=>a.start-b.start);
+  const cols=[];  // tracks end-time of last event in each column
+  const result=[];
+  const TOLERANCE=45*60*1000; // 45 min overlap tolerance — if a col ends within 45min of our start, we can share
+
+  for(const ev of sorted){
+    const s=ev.start._ad?0:ev.start.getTime();
+    const e=ev.end
+      ?(ev.end._ad ? ev.start.getTime()+8*3600000 : ev.end.getTime())
+      :s+3600000;
+    let placed=false;
+    // First pass: find a column that ends at or before our start (no overlap)
+    for(let c=0;c<cols.length&&c<maxCols;c++){
+      if(cols[c]<=s){cols[c]=e;result.push({ev,col:c,total:0,overflow:false});placed=true;break}
+    }
+    // Second pass: find a column with minimal overlap (within tolerance)
+    if(!placed){
+      for(let c=0;c<cols.length&&c<maxCols;c++){
+        if(cols[c]-s<=TOLERANCE){cols[c]=Math.max(cols[c],e);result.push({ev,col:c,total:0,overflow:false});placed=true;break}
+      }
+    }
+    if(!placed){
+      if(cols.length<maxCols){
+        cols.push(e);result.push({ev,col:cols.length-1,total:0,overflow:false});
+      } else {
+        // Truly can't fit — goes to compact overflow strip
+        result.push({ev,col:maxCols-1,total:0,overflow:true});
+      }
+    }
+  }
+  // Per-event total: max col+1 among events that truly overlap with this one
+  result.forEach(r=>{
+    const s=r.ev.start._ad?0:r.ev.start.getTime();
+    const e=r.ev.end?(r.ev.end._ad?s+86400000:r.ev.end.getTime()):s+3600000;
+    let mx=r.col;
+    result.forEach(o=>{
+      if(o===r)return;
+      const os=o.ev.start._ad?0:o.ev.start.getTime();
+      const oe=o.ev.end?(o.ev.end._ad?os+86400000:o.ev.end.getTime()):os+3600000;
+      if(os<e&&oe>s)mx=Math.max(mx,o.col);
+    });
+    r.total=mx+1;
+  });
+  return result;
+}
+
+function buildCompactCard(container, days, today, exp){
+  let html='';
+  days.forEach((d,dayIdx)=>{
+    const k=d.toDateString();
+    const tc=same(d,today)?' tc':'';
+    const evs=exp.filter(ev=>{
+      const ds=new Date(ev.start);ds.setHours(0,0,0,0);
+      return ds.toDateString()===k;
+    }).sort((a,b)=>a.start-b.start);
+
+    // Day header — match regular grid day header style
+    html+=`<div class="compact-card-hdr${tc}">
+      <div class="dayline"><span class="dn-s">${DS[d.getDay()]}</span><span class="dd-s"> ${d.getDate()}</span><span class="dm-s"> ${MN[d.getMonth()]}</span></div>
+    </div>`;
+
+    // Shifts list
+    html+=`<div class="compact-day-col${evs.length===0?' empty':''}">`;
+    if(evs.length===0){
+      html+=`<div class="compact-empty">—</div>`;
+    } else {
+      let idx=0;
+      evs.forEach(ev=>{
+        const [bg,tx,ac]=PALETTES[nameHash(ev.title||'')];
+        const ts=ev.start._ad?'Hele dag':`${p2(ev.start.getHours())}:${p2(ev.start.getMinutes())}`;
+        const te=ev.end&&!ev.end._ad?`–${p2(ev.end.getHours())}:${p2(ev.end.getMinutes())}`:' ';
+        html+=`<div class="compact-ev" style="background:${bg};color:${tx};border-left-color:${ac};animation-delay:${idx++*40}ms">
+          <span class="et">${ev.title||'(geen titel)'}</span>
+          <span class="es">${ts} ${te}</span>
+        </div>`;
+      });
+    }
+    html+='</div>';
+  });
+  container.innerHTML=html;
+}
+
+// ── DUTCH PUBLIC HOLIDAYS + AMSTERDAM SCHOOL HOLIDAYS ──
+function easterSunday(y){
+  // Anonymous Gregorian algorithm
+  const a=y%19,b=Math.floor(y/100),c=y%100;
+  const d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25);
+  const g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30;
+  const i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7;
+  const m=Math.floor((a+11*h+22*l)/451);
+  const month=Math.floor((h+l-7*m+114)/31)-1;
+  const day=((h+l-7*m+114)%31)+1;
+  return new Date(y,month,day);
+}
+
+function getDutchHolidays(y){
+  const ea=easterSunday(y);
+  const add=(d,n)=>{const c=new Date(d);c.setDate(c.getDate()+n);return c};
+  const key=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const h={};
+  const set=(d,name)=>{ h[key(d)]=name; };
+  // Vaste feestdagen
+  set(new Date(y,0,1),  'Nieuwjaarsdag');
+  set(add(ea,-2),       'Goede Vrijdag');
+  set(ea,               '1e Paasdag');
+  set(add(ea,1),        '2e Paasdag');
+  set(new Date(y,3,27), y>=2014?'Koningsdag':'Koninginnedag');
+  // Als 27 april zondag is → 26 april
+  if(new Date(y,3,27).getDay()===0) set(new Date(y,3,26),'Koningsdag');
+  set(add(ea,39),       'Hemelvaartsdag');
+  set(add(ea,49),       '1e Pinksterdag');
+  set(add(ea,50),       '2e Pinksterdag');
+  set(new Date(y,11,25),'1e Kerstdag');
+  set(new Date(y,11,26),'2e Kerstdag');
+  // Bevrijdingsdag (5 mei, alleen lustrumjaren vóór 1990, elk jaar na 1990 officieel vrij)
+  set(new Date(y,4,5),  'Bevrijdingsdag');
+  return h;
+}
+
+// Amsterdam school holidays (approximations based on standard Dutch school calendar)
+// Returns object: key → vacation name
+function getAmsterdamSchoolHolidays(y){
+  const h={};
+  const range=(from,to,name)=>{
+    const d=new Date(from);
+    while(d<=to){
+      const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      if(!h[k])h[k]=name;
+      d.setDate(d.getDate()+1);
+    }
+  };
+  // Approximate school holiday dates for Amsterdam (region Noord-Holland)
+  // These are typical dates; exact dates vary per year from overheid.nl
+  const holidays = [
+    // Herfstvakantie (last week Oct)
+    [new Date(y,9,21), new Date(y,9,27), 'Herfstvakantie'],
+    // Kerstvakantie (~23 dec – 6 jan)
+    [new Date(y,11,23), new Date(y,11,31), 'Kerstvakantie'],
+    [new Date(y+1,0,1), new Date(y+1,0,5), 'Kerstvakantie'],
+    // Voorjaarsvakantie (3rd week Feb)
+    [new Date(y,1,17), new Date(y,1,23), 'Voorjaarsvakantie'],
+    // Meivakantie (last week Apr + 1st week May)
+    [new Date(y,3,28), new Date(y,4,9), 'Meivakantie'],
+    // Zomervakantie (~mid Jul – end Aug)
+    [new Date(y,6,14), new Date(y,7,24), 'Zomervakantie'],
+  ];
+  holidays.forEach(([s,e,n])=>range(s,e,n));
+  return h;
+}
+
+const _publicHolCache={}, _schoolHolCache={};
+function getHolidayLabel(date){
+  const y=date.getFullYear();
+  if(!_publicHolCache[y]) _publicHolCache[y]=getDutchHolidays(y);
+  if(!_schoolHolCache[y]) _schoolHolCache[y]=getAmsterdamSchoolHolidays(y);
+  const key=`${y}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+  return {pub:_publicHolCache[y][key]||null, school:_schoolHolCache[y][key]||null};
+}
+
+// Simple split row2: grid for Do/Vr + compact card for Za/Zo side by side
+function buildGridWithCompact(container, colDefs, weekendDays, today, exp, cm, ci, byDay, sh, eh){
+  container.style.display='flex';
+  container.style.gap='0';
+
+  const sgB=document.createElement('div');
+  // sgC must be exactly 1/3 of (total width - 52px) to match row1's 3 equal cols
+  // Set sgC to fixed width = calc((100% - 52px) / 3), sgB gets the rest
+  const sgC=document.createElement('div');
+  sgC.style.cssText='width:calc((100% - 52px) / 3);flex-shrink:0;min-width:0;overflow:hidden;display:flex;flex-direction:column;border-left:2.5px solid #222';
+  sgB.style.cssText='flex:1;min-width:0;overflow:hidden';
+  container.appendChild(sgB);
+  container.appendChild(sgC);
+
+  buildGrid(sgB,colDefs,today,exp,cm,ci,byDay,sh,eh);
+  buildCompactCard(sgC,weekendDays,today,exp);
+}
+
+function buildGrid(container, colDefs, today, exp, cm, ci, byDay, sh, eh){
+  container.style.display='grid';
+  container.style.gridTemplateColumns=`52px repeat(${colDefs.length},1fr)`;
+
+  // Header row + all-day rows
+  let h=`<div class="ch th"></div>`;
+  colDefs.forEach(cd=>{
+    const d=cd.days[0];
+    const t=same(d,today);
+    const {pub,school}=getHolidayLabel(d);
+    const holHtml=pub?`<span class="hday">🔴 ${pub}</span>`:''
+      +(school&&!pub?`<span class="schday">📚 ${school}</span>`:'');
+    const isLastCol=(colDefs.indexOf(cd)===colDefs.length-1);
+    h+=`<div class="ch${t?' tc':''}" data-toggle-day="${d.toDateString()}"${isLastCol?' data-lastcol':''}>
+      <div class="dayline"><span class="dn-short">${DS[d.getDay()]}</span><span class="dn-full">${DL[d.getDay()]}</span><span class="dd"> ${d.getDate()}</span><span class="dm" style="margin-left:2px">${MN[d.getMonth()]}</span></div>
+      ${holHtml}
+    </div>`;
+  });
+
+  // All-day events row (1 row spanning all cols after time cell)
+  // Collect all-day events per day
+  const alldayByDay={};
+  colDefs.forEach(cd=>{ alldayByDay[cd.days[0].toDateString()]=[] });
+  exp.forEach(ev=>{
+    if(!ev.start._ad)return;
+    const ds=new Date(ev.start);ds.setHours(0,0,0,0);
+    const k=ds.toDateString();
+    if(alldayByDay[k]!==undefined) alldayByDay[k].push(ev);
+  });
+  // Also add Dutch public holidays as all-day pills
+  // Also include timed afspraken events in the allday row as full-width blocks
+  exp.forEach(ev=>{
+    if(ev._cal!=='afspraken'||ev.start._ad)return;
+    const ds=new Date(ev.start);ds.setHours(0,0,0,0);
+    const k=ds.toDateString();
+    if(alldayByDay[k]!==undefined) alldayByDay[k].push(ev);
+  });
+  colDefs.forEach(cd=>{
+    const d=cd.days[0];
+    const {pub}=getHolidayLabel(d);
+    if(pub) alldayByDay[d.toDateString()].unshift({title:pub,_cal:'holiday',start:Object.assign(new Date(d),{_ad:true})});
+  });
+  const hasAllday=Object.values(alldayByDay).some(a=>a.length>0);
+  const _adTipEvs=[];
+  if(hasAllday){
+    h+=`<div class="tl" style="height:auto;min-height:4px;padding:0"></div>`;
+    colDefs.forEach((cd,i)=>{
+      const k=cd.days[0].toDateString();
+      const evs=alldayByDay[k]||[];
+      const isLast=(i===colDefs.length-1);
+      h+=`<div class="allday-row" style="border-right:${isLast?'none':'2.5px solid #222'}">`;
+      evs.forEach(ev=>{
+        const cls=ev._cal==='holiday'?'is-holiday':ev._cal==='afspraken'?'is-afspraak':'is-other';
+        const [bg,tx,ac]=ev._cal==='holiday'?['#fde8e8','#c0392b','#c0392b']:
+                          ev._cal==='afspraken'?['#e8f0fe','#1a56db','#1a56db']:
+                          PALETTES[nameHash(ev.title||'')];
+        // Show time for timed afspraken events; skip if all-day or midnight-to-midnight
+        let timeStr='';
+        if(!ev.start._ad){
+          const startH=ev.start.getHours(), startM=ev.start.getMinutes();
+          const endH=ev.end?ev.end.getHours():0, endM=ev.end?ev.end.getMinutes():0;
+          const isZero=(startH===0&&startM===0&&endH===0&&endM===0);
+          if(!isZero){
+            const tS=`${p2(startH)}:${p2(startM)}`;
+            const tE=ev.end?`–${p2(endH)}:${p2(endM)}`:'';
+            timeStr=` <span style="opacity:.75;font-weight:400">${tS}${tE}</span>`;
+          }
+        }
+        const tipIdx=_adTipEvs.length;
+        _adTipEvs.push(ev);
+        h+=`<div class="allday-block ${cls}" style="background:${bg};color:${tx};border-left-color:${ac}" data-adtip="${tipIdx}">${ev.title||'?'}${timeStr}</div>`;
+      });
+      h+='</div>';
+    });
+  }
+
+  // Hour rows — mark 12, 15, 18 with sharp black lines
+  const SHARP_HRS=[12,15,18];
+  for(let hr=sh;hr<eh;hr++){
+    const sharp=SHARP_HRS.includes(hr);
+    const isLast=(hr===eh-1);
+    h+=`<div class="tl${sharp?' sharp':''}">${p2(hr)}:00</div>`;
+    colDefs.forEach(cd=>{
+      h+=`<div class="ce${sharp?' sharp':''}${isLast?' ce-last-row':''}${colDefs.indexOf(cd)===colDefs.length-1?' data-lastcol':''}" data-col="${cd.days[0].toDateString()}" data-h="${hr}"></div>`;
+    });
+  }
+  container.innerHTML=h;
+
+  // Tooltip listeners for all-day / afspraken blocks
+  container.querySelectorAll('[data-adtip]').forEach(el=>{
+    const ev=_adTipEvs[+el.dataset.adtip];
+    if(!ev)return;
+    el.addEventListener('mousemove',e=>showTip(e,ev));
+    el.addEventListener('mouseleave',hideTip);
+    el.addEventListener('touchend',e=>{e.preventDefault();const t=e.changedTouches[0];showTip({clientX:t.clientX,clientY:t.clientY},ev);},{passive:false});
+  });
+
+  // Click on day header → toggle day/week view
+  container.querySelectorAll('[data-toggle-day]').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const d=new Date(el.dataset.toggleDay);
+      if(vm==='week'){
+        vm='day'; anc=d;
+        document.getElementById('bD').classList.add('on');
+        document.getElementById('bW').classList.remove('on');
+      } else {
+        vm='week'; anc=sowk(d);
+        document.getElementById('bW').classList.add('on');
+        document.getElementById('bD').classList.remove('on');
+      }
+      render(0);
+    });
+  });
+
+  // Collect timed events per day column (skip all-day AND afspraken — those go in allday row)
+  const colEvents={};
+  colDefs.forEach(cd=>{ colEvents[cd.days[0].toDateString()]=[] });
+  exp.forEach(ev=>{
+    if(ev.start._ad)return;
+    if(ev._cal==='afspraken')return; // shown in allday row as full-width blocks
+    const ds=new Date(ev.start);ds.setHours(0,0,0,0);
+    const k=ds.toDateString();
+    if(colEvents[k]!==undefined) colEvents[k].push(ev);
+  });
+
+  // Day-view: allow more columns (up to 6); week-view: cap at 3; print: unlimited
+  const maxCols = window._printMaxCols || (vm==='day' ? 6 : 3);
+
+  let animIdx=0;
+  // Collect overflow events per day column for the overflow strip
+  const overflowByCol={};
+  colDefs.forEach(cd=>{ overflowByCol[cd.days[0].toDateString()]=[] });
+
+  Object.entries(colEvents).forEach(([colKey,evList])=>{
+    const assigned=assignColumns(evList, maxCols);
+    assigned.forEach(({ev,col,total,overflow})=>{
+      if(overflow){
+        // Don't place in grid — collect for overflow strip
+        overflowByCol[colKey]&&overflowByCol[colKey].push(ev);
+        return;
+      }
+      const sh2=ev.start.getHours()+ev.start.getMinutes()/60;
+      const eh2=ev.end?(ev.end._ad?eh:ev.end.getHours()+ev.end.getMinutes()/60):sh2+1;
+      const bH=Math.max(sh2,sh),cH=Math.floor(bH);
+      const top=(bH-sh)*HH,bot=(Math.min(eh2,eh)-sh)*HH,height=Math.max(bot-top,14);
+      const cell=container.querySelector(`[data-col="${colKey}"][data-h="${cH}"]`);if(!cell)return;
+      const dv=document.createElement('div');
+      dv.className='ev'+(ev._cal==='afspraken'?' afspraak':'');
+      applyColor(dv,ev.title||'');
+      if(ev._cal==='afspraken'){dv.style.background='#fde8e8';dv.style.color='#7b1111';}
+      dv.style.top=`${top-(cH-sh)*HH}px`;dv.style.height=`${height}px`;
+      // 1–2 shifts: equal side-by-side; 3+ shifts: overlapping cascade
+      let leftPct,rightPct;
+      if(total<=2){
+        leftPct=col*(100/total)+1;
+        rightPct=(total-col-1)*(100/total)+1;
+      } else {
+        const step=Math.min(20,58/total);
+        leftPct=col*step+1;
+        rightPct=col===total-1?1:Math.max(2,100-leftPct-62);
+      }
+      dv.style.left=`${leftPct}%`;dv.style.right=`${rightPct}%`;
+      const baseZ=String(5+col);
+      dv.style.zIndex=baseZ;
+      dv.dataset.baseZ=baseZ;
+      dv.style.animationDelay=`${animIdx++*40}ms`;
+      const isAD=ev.start._ad;
+      const ts=isAD?'':`${p2(ev.start.getHours())}:${p2(ev.start.getMinutes())}`;
+      const te=(!isAD&&ev.end&&!ev.end._ad)?` – ${p2(ev.end.getHours())}:${p2(ev.end.getMinutes())}`:' ';
+      dv.innerHTML=`<div class="et">${ev.title||'(geen titel)'}</div>${ts?`<div class="es">${ts}${te}</div>`:''}`;
+      if(ev._cal==='custom' && ev.localId){
+        const del=document.createElement('button');
+        del.className='shift-delete';
+        del.title='Verwijder dienst';
+        del.textContent='×';
+        del.addEventListener('click',e=>{e.stopPropagation(); deleteLocalShift(ev.localId);});
+        dv.appendChild(del);
+      }
+      dv.addEventListener('mousemove',e=>showTip(e,ev));
+      dv.addEventListener('mouseleave',hideTip);
+      dv.addEventListener('touchend',e=>{e.preventDefault();const t=e.changedTouches[0];showTip({clientX:t.clientX,clientY:t.clientY},ev);},{passive:false});
+      dv.addEventListener('click',e=>{
+        e.stopPropagation();
+        const isTop=dv.classList.contains('ev-top');
+        // Reset all elevated events in the whole panel
+        document.querySelectorAll('.ev.ev-top').forEach(el=>{
+          el.classList.remove('ev-top');
+          el.style.zIndex=el.dataset.baseZ||'5';
+        });
+        if(!isTop){
+          dv.classList.add('ev-top');
+          dv.style.zIndex='100';
+        }
+      });
+      cell.appendChild(dv);
+    });
+  });
+
+  // Render overflow strip: one row per day column that has overflow, spanning full grid width
+  const hasOverflow=Object.values(overflowByCol).some(a=>a.length>0);
+  if(hasOverflow){
+    // Add overflow strip row: time-col placeholder + one cell per day col
+    const nCols=colDefs.length;
+    // Insert as a new row in the grid by appending cells
+    const stripTimePlaceholder=document.createElement('div');
+    stripTimePlaceholder.className='tl';
+    stripTimePlaceholder.style.cssText='height:auto;min-height:4px;padding:0;border-bottom:none';
+    stripTimePlaceholder.innerHTML='<span style="font-size:.55rem;color:var(--mu);writing-mode:vertical-rl;transform:rotate(180deg);padding:2px 0">extra</span>';
+    container.appendChild(stripTimePlaceholder);
+
+    colDefs.forEach((cd,i)=>{
+      const k=cd.days[0].toDateString();
+      const ovEvs=(overflowByCol[k]||[]).sort((a,b)=>a.start-b.start);
+      const isLastCol=(i===colDefs.length-1);
+      const cell=document.createElement('div');
+      cell.className='overflow-strip';
+      cell.style.cssText=`border-right:${isLastCol?'none':'2.5px solid #222'};border-bottom:2.5px solid #222`;
+      if(ovEvs.length>0){
+        ovEvs.forEach((ev,idx)=>{
+          const[bg,tx,ac]=PALETTES[nameHash(ev.title||'')];
+          const ts=ev.start._ad?'':`${p2(ev.start.getHours())}:${p2(ev.start.getMinutes())}`;
+          const te=(!ev.start._ad&&ev.end&&!ev.end._ad)?` – ${p2(ev.end.getHours())}:${p2(ev.end.getMinutes())}`:'';
+          const row=document.createElement('div');
+          row.className='overflow-ev';
+          row.style.cssText=`background:${bg};color:${tx};border-left-color:${ac};animation-delay:${idx*40}ms`;
+          row.innerHTML=`<span class="oe-name">${ev.title||'?'}</span><span class="oe-time">${ts?` ${ts}${te}`:''}</span>`;
+          row.addEventListener('mousemove',e=>showTip(e,ev));
+          row.addEventListener('mouseleave',hideTip);
+          row.addEventListener('touchend',e=>{e.preventDefault();const t=e.changedTouches[0];showTip({clientX:t.clientX,clientY:t.clientY},ev);},{passive:false});
+          cell.appendChild(row);
+        });
+      }
+      container.appendChild(cell);
+    });
+  }
+}
+
+// ── PHONE WEEK STRIP ────────────────────────────────────
+function updateWeekStrip(){
+  const strip=document.getElementById('weekStrip');
+  if(!strip||!isPhone()){if(strip)strip.innerHTML='';return;}
+  const today=new Date();today.setHours(0,0,0,0);
+  const weekStart=sowk(anc);
+  let h='';
+  for(let i=0;i<7;i++){
+    const d=addD(weekStart,i);
+    const isToday=same(d,today);
+    const hasEv=allEv.some(ev=>{const ds=new Date(ev.start);ds.setHours(0,0,0,0);return same(ds,d);});
+    h+=`<div class="ws-day${isToday?' ws-today':''}" data-ws="${d.toDateString()}">
+      <span class="ws-dn">${DS[d.getDay()]}</span>
+      <span class="ws-num">${d.getDate()}</span>
+      <span class="ws-dot${hasEv?' has-ev':''}"></span>
+    </div>`;
+  }
+  strip.innerHTML=h;
+  strip.querySelectorAll('[data-ws]').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const d=new Date(el.dataset.ws);
+      if(!same(sowk(d),sowk(anc))){
+        anc=d;vm='week';
+        document.getElementById('bW').classList.add('on');
+        document.getElementById('bD').classList.remove('on');
+        render(0);
+      } else {
+        const label=document.querySelector(`[data-toggle-day="${d.toDateString()}"]`);
+        if(label) label.scrollIntoView({behavior:'smooth',block:'start'});
+      }
+    });
+  });
+}
+let _lastSmall=isSmall(), _lastPhone=isPhone(), _lastLandscape=isPhoneLandscape();
+function handleResize(){
+  const s=isSmall(), p=isPhone(), l=isPhoneLandscape();
+  if(s!==_lastSmall||p!==_lastPhone||l!==_lastLandscape){
+    _lastSmall=s; _lastPhone=p; _lastLandscape=l;
+    if(allEv.length) render(0);
+  }
+}
+window.addEventListener('resize', handleResize);
+// Orientation change: small delay to let browser finish rotating
+window.addEventListener('orientationchange', ()=>setTimeout(()=>{_lastLandscape=null;handleResize();}, 150));
+
+const tipEl=document.getElementById('tip');
+function showTip(e,ev){
+  const ts=ev.start._ad?'Hele dag':`${p2(ev.start.getHours())}:${p2(ev.start.getMinutes())}`;
+  const te=ev.end&&!ev.end._ad?` – ${p2(ev.end.getHours())}:${p2(ev.end.getMinutes())}`:' ';
+  tipEl.innerHTML=`<strong>${ev.title||'(geen titel)'}</strong><br>🕐 ${ts}${te}${ev.location?'<br>📍 '+ev.location:''}${ev.desc?'<br><em style="font-size:.68rem;opacity:.85">'+ev.desc.slice(0,100)+'</em>':''}`;
+  tipEl.classList.add('on');moveTip(e);
+}
+function moveTip(e){
+  const tw=tipEl.offsetWidth||280, th=tipEl.offsetHeight||80, mg=12;
+  const left=e.clientX+13+tw+mg>window.innerWidth ? e.clientX-tw-13 : e.clientX+13;
+  const top=e.clientY+13+th+mg>window.innerHeight ? e.clientY-th-13 : e.clientY+13;
+  tipEl.style.left=Math.max(mg,left)+'px';
+  tipEl.style.top=Math.max(mg,top)+'px';
+}
+function hideTip(){tipEl.classList.remove('on')}
+document.addEventListener('mousemove',e=>{if(tipEl.classList.contains('on'))moveTip(e)});
+document.addEventListener('touchstart',e=>{if(!e.target.closest('.ev,.overflow-ev'))hideTip();},{passive:true});
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.ev')){
+    document.querySelectorAll('.ev.ev-top').forEach(el=>{
+      el.classList.remove('ev-top');
+      el.style.zIndex=el.dataset.baseZ||'5';
+    });
+  }
+});
+
+document.getElementById('pB').onclick=()=>{anc=(vm==='week')?addD(anc,-7):addD(anc,-1);render(-1)};
+document.getElementById('nB').onclick=()=>{anc=(vm==='week')?addD(anc,7):addD(anc,1);render(1)};
+document.getElementById('tB').onclick=()=>{const t=new Date();anc=(vm==='week'&&!isPhone())?sowk(t):t;render(0);setTimeout(scrollToToday,350)};
+document.getElementById('bW').onclick=()=>{vm='week';anc=sowk(anc);document.getElementById('bW').classList.add('on');document.getElementById('bD').classList.remove('on');render(0)};
+document.getElementById('bD').onclick=()=>{vm='day';document.getElementById('bD').classList.add('on');document.getElementById('bW').classList.remove('on');render(0)};
+
+// Initialize login & editing controls
+initEditFeatures();
+
+// ── DATEPICKER ───────────────────────────────────────────
+(()=>{
+  const DOW_NL=['Zo','Ma','Di','Wo','Do','Vr','Za'];
+  const dp=document.getElementById('datePicker');
+  let dpDate=new Date(); // month currently shown in picker
+
+  function renderPicker(){
+    const today=new Date();today.setHours(0,0,0,0);
+    const y=dpDate.getFullYear(),m=dpDate.getMonth();
+    document.getElementById('dpMonthLabel').textContent=
+      `${['januari','februari','maart','april','mei','juni','juli','augustus','september','oktober','november','december'][m]} ${y}`;
+
+    // Day-of-week headers starting Monday
+    let g='<div class="dp-dow">Ma</div><div class="dp-dow">Di</div><div class="dp-dow">Wo</div><div class="dp-dow">Do</div><div class="dp-dow">Vr</div><div class="dp-dow">Za</div><div class="dp-dow">Zo</div>';
+
+    // First day of month; pad to Monday start
+    const first=new Date(y,m,1);
+    const startDow=first.getDay()===0?6:first.getDay()-1; // 0=Mon
+    const daysInMonth=new Date(y,m+1,0).getDate();
+
+    // Prev month padding
+    const daysInPrev=new Date(y,m,0).getDate();
+    for(let i=startDow-1;i>=0;i--) g+=`<div class="dp-day dp-other">${daysInPrev-i}</div>`;
+
+    // Days of month
+    for(let d=1;d<=daysInMonth;d++){
+      const dd=new Date(y,m,d);dd.setHours(0,0,0,0);
+      const isToday=dd.getTime()===today.getTime();
+      // Is this day within the currently shown anchor?
+      const isSel=vm==='week'
+        ? (dd>=sowk(anc)&&dd<=addD(sowk(anc),6))
+        : same(dd,anc);
+      const cls='dp-day'+(isToday?' dp-today':'')+(isSel&&!isToday?' dp-sel':'');
+      g+=`<div class="${cls}" data-y="${y}" data-m="${m}" data-d="${d}">${d}</div>`;
+    }
+    // Next month padding to fill row
+    const total=startDow+daysInMonth;
+    const rem=total%7===0?0:7-(total%7);
+    for(let d=1;d<=rem;d++) g+=`<div class="dp-day dp-other">${d}</div>`;
+
+    document.getElementById('dpGrid').innerHTML=g;
+
+    // Click on a day
+    document.getElementById('dpGrid').onclick=e=>{
+      const el=e.target.closest('.dp-day');
+      if(!el||el.classList.contains('dp-other'))return;
+      const chosen=new Date(+el.dataset.y,+el.dataset.m,+el.dataset.d);
+      anc=vm==='week'?sowk(chosen):chosen;
+      render(0);
+      setTimeout(scrollToToday,350);
+      hidePicker();
+    };
+  }
+
+  function showPicker(){
+    dpDate=new Date(anc); // start on current anchor's month
+    renderPicker();
+    // Position below the dropdown arrow button
+    const btn=document.getElementById('tBDrop');
+    const r=btn.getBoundingClientRect();
+    dp.style.top=(r.bottom+6)+'px';
+    dp.style.left=Math.min(r.left,window.innerWidth-270)+'px';
+    dp.style.display='block';
+  }
+  function hidePicker(){ dp.style.display='none'; }
+
+  document.getElementById('tBDrop').onclick=e=>{
+    e.stopPropagation();
+    dp.style.display==='none'?showPicker():hidePicker();
+  };
+  document.getElementById('dpPrev').onclick=e=>{
+    e.stopPropagation();
+    dpDate=new Date(dpDate.getFullYear(),dpDate.getMonth()-1,1);
+    renderPicker();
+  };
+  document.getElementById('dpNext').onclick=e=>{
+    e.stopPropagation();
+    dpDate=new Date(dpDate.getFullYear(),dpDate.getMonth()+1,1);
+    renderPicker();
+  };
+  // Close on outside click
+  document.addEventListener('click',e=>{
+    if(!dp.contains(e.target)&&e.target.id!=='tBDrop')hidePicker();
+  });
+})();
+
+// ── KEYBOARD NAVIGATION ─────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowLeft')  { anc=(vm==='week')?addD(anc,-7):addD(anc,-1); render(-1); e.preventDefault(); }
+  if (e.key === 'ArrowRight') { anc=(vm==='week')?addD(anc,7):addD(anc,1); render( 1); e.preventDefault(); }
+  if (e.key === 'ArrowUp')    { vm='week';anc=sowk(anc);document.getElementById('bW').classList.add('on');document.getElementById('bD').classList.remove('on');render(0);e.preventDefault(); }
+  if (e.key === 'ArrowDown')  { vm='day';document.getElementById('bD').classList.add('on');document.getElementById('bW').classList.remove('on');render(0);e.preventDefault(); }
+});
+
+// ── SWIPE NAVIGATION (with slide animation) ──────────────
+(()=>{
+  let tx=0,ty=0,dragging=false,sliding=false;
+  document.addEventListener('touchstart',e=>{
+    if(e.touches.length!==1)return;
+    tx=e.touches[0].clientX; ty=e.touches[0].clientY; dragging=true;
+  },{passive:true});
+  document.addEventListener('touchmove',e=>{
+    if(!dragging||sliding)return;
+    const dx=e.touches[0].clientX-tx;
+    const dy=e.touches[0].clientY-ty;
+    // If clearly vertical scroll, cancel
+    if(Math.abs(dy)>Math.abs(dx)*1.5){dragging=false;}
+  },{passive:true});
+  document.addEventListener('touchend',e=>{
+    if(!dragging)return; dragging=false;
+    const dx=e.changedTouches[0].clientX-tx;
+    const dy=e.changedTouches[0].clientY-ty;
+    if(Math.abs(dx)<50||Math.abs(dx)<Math.abs(dy)*1.5)return;
+    sliding=true;
+    if(dx<0){anc=(vm==='week')?addD(anc,7):addD(anc,1);render( 1);}
+    else    {anc=(vm==='week')?addD(anc,-7):addD(anc,-1);render(-1);}
+    setTimeout(()=>sliding=false,400);
+  },{passive:true});
+})();
+
+// ── PWA: MANIFEST + INSTALL BUTTON ─────────────────────
+// Build manifest as a proper data-URI (not blob:) so Android/Play Protect
+// does not flag it as an unknown-origin app
+const iconUrl = 'https://parknest.nl/wp-content/uploads/2024/09/Parknest-logo-transp-shadow.png';
+
+const manifest = {
+  id: 'https://parknest.nl/parknest-rooster.html',
+  name: 'Parknest Vrijwilligersrooster',
+  short_name: 'Parknest',
+  description: 'Vrijwilligersrooster van Stichting Buurtbelang Parknest',
+  start_url: 'https://parknest.nl/parknest-rooster.html',
+  scope: 'https://parknest.nl/',
+  display: 'standalone',
+  orientation: 'any',
+  background_color: '#1a3d2b',
+  theme_color: '#1a3d2b',
+  icons: [
+    { src: iconUrl, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+    { src: iconUrl, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+  ]
+};
+
+// Use static manifest file on server; fall back to data-URI locally
+const isLocal = location.protocol === 'file:';
+if(!isLocal){
+  // manifest link already points to parknest-manifest.json — leave it
+} else {
+  // Replace with inline data-URI to avoid CORS error on local file
+  const manifest={id:'/rooster.html',name:'Parknest Vrijwilligersrooster',short_name:'Parknest',start_url:'/rooster.html',scope:'/',display:'standalone',background_color:'#1a3d2b',theme_color:'#1a3d2b',prefer_related_applications:false,icons:[{src:iconUrl,sizes:'192x192',type:'image/png',purpose:'any'},{src:iconUrl,sizes:'512x512',type:'image/png',purpose:'any'},{src:iconUrl,sizes:'512x512',type:'image/png',purpose:'maskable'}]};
+  document.getElementById('manifestLink').href='data:application/manifest+json,'+encodeURIComponent(JSON.stringify(manifest));
+}
+
+// Chrome/Edge/Android install prompt
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{
+  // Don't call preventDefault — that suppresses the mini-infobar on Android
+  deferredPrompt=e;
+  const b=document.getElementById('installBtn');b.style.display='flex';
+});
+window.addEventListener('appinstalled',()=>{document.getElementById('installBtn').style.display='none';});
+
+document.getElementById('installBtn').addEventListener('click',async()=>{
+  if(deferredPrompt){
+    deferredPrompt.prompt();
+    const{outcome}=await deferredPrompt.userChoice;
+    deferredPrompt=null;
+    if(outcome==='accepted')document.getElementById('installBtn').style.display='none';
+  } else {
+    alert('Voeg toe aan startscherm:\n\n📱 iPhone/iPad:\nTik op het Deel-icoon (□↑) onderaan Safari → "Zet op beginscherm"\n\n🤖 Android (Chrome):\nTik op menu (⋮) → "Toevoegen aan startscherm"\n\n💻 Desktop Chrome/Edge:\nKlik op het ⊕ icoon rechts in de adresbalk');
+  }
+});
+
+// ── PRINT ORIENTATION ───────────────────────────────────
+(()=>{
+  const pageStyle=document.createElement('style');
+  pageStyle.id='printPageRule';
+  document.head.appendChild(pageStyle);
+
+  function getWeekNr(d){
+    const jan4=new Date(d.getFullYear(),0,4);
+    const startOfW1=new Date(jan4);
+    startOfW1.setDate(jan4.getDate()-(jan4.getDay()||7)+1);
+    return Math.floor(1+(d-startOfW1)/604800000);
+  }
+
+  function printAs(orientation){
+    // Fill in print header
+    const days=getDays().sort((a,b)=>a-b);
+    const s=days[0],e=days[days.length-1];
+    const wk=getWeekNr(s);
+    const label=vm==='day'
+      ? `${DL[s.getDay()]} ${s.getDate()} ${MN[s.getMonth()]} ${s.getFullYear()}`
+      : `Week ${wk} · ${s.getDate()} ${MN[s.getMonth()]} – ${e.getDate()} ${MN[e.getMonth()]} ${e.getFullYear()}`;
+    document.getElementById('printMeta').textContent=label;
+
+    pageStyle.textContent=orientation==='landscape'
+      ? '@page{size:A4 landscape;margin:6mm 8mm}'
+      : '@page{size:A4 portrait;margin:8mm 8mm}';
+
+    // Compute zoom to fit on one page
+    // A4 landscape usable: ~277mm wide × ~183mm tall; portrait: ~194mm × ~270mm
+    const mmW = orientation==='landscape' ? 277 : 194;
+    const mmH = orientation==='landscape' ? 183 : 270;
+    const pxPerMm = 96/25.4;
+    const pageW = mmW * pxPerMm;
+    const pageH = mmH * pxPerMm;
+
+    // Measure current rendered height of panelCur (includes all rows)
+    const panel = document.getElementById('panelCur');
+    const contentH = panel.scrollHeight + 20; // +20 for print header
+    const contentW = panel.scrollWidth;
+
+    const zoomH = pageH / contentH;
+    const zoomW = pageW / contentW;
+    const zoom  = Math.min(zoomH, zoomW, 1); // never zoom in, only out
+
+    document.body.classList.remove('print-landscape','print-portrait');
+    document.body.classList.add('print-'+orientation);
+    panel.style.zoom = zoom;
+    document.getElementById('printHeader').style.zoom = zoom;
+
+    // Re-render with unlimited columns so all shifts print
+    window._printMaxCols = 99;
+    renderInto(panel, anc);
+
+    // Recalculate zoom after re-render
+    const contentH2 = panel.scrollHeight + 20;
+    const contentW2 = panel.scrollWidth;
+    const zoom2 = Math.min(pageH/contentH2, pageW/contentW2, 1);
+    panel.style.zoom = zoom2;
+    document.getElementById('printHeader').style.zoom = zoom2;
+
+    window.print();
+    window.addEventListener('afterprint',()=>{
+      document.body.classList.remove('print-landscape','print-portrait');
+      panel.style.zoom='';
+      document.getElementById('printHeader').style.zoom='';
+      window._printMaxCols = null;
+      render(0); // restore normal render
+    },{once:true});
+  }
+
+  // Main button → landscape; arrow → dropdown menu
+  const menu=document.getElementById('printMenu');
+
+  function showPrintMenu(){
+    const btn=document.getElementById('printDrop');
+    const r=btn.getBoundingClientRect();
+    menu.style.top=(r.bottom+4)+'px';
+    menu.style.left=Math.min(r.left,window.innerWidth-180)+'px';
+    menu.style.display='block';
+  }
+  function hidePrintMenu(){ menu.style.display='none'; }
+
+  document.getElementById('printLandBtn').addEventListener('click',()=>printAs('landscape'));
+  document.getElementById('printDrop').addEventListener('click',e=>{
+    e.stopPropagation();
+    menu.style.display==='none'?showPrintMenu():hidePrintMenu();
+  });
+  document.getElementById('printLandOpt').addEventListener('click',()=>{ hidePrintMenu(); printAs('landscape'); });
+  document.getElementById('printPortOpt').addEventListener('click',()=>{ hidePrintMenu(); printAs('portrait'); });
+  document.addEventListener('click',e=>{
+    if(!e.target.closest('#printBtnGroup')&&!e.target.closest('#printMenu')) hidePrintMenu();
+  });
+})();
+
+// ── SHARE AS PNG ─────────────────────────────────────────
+(()=>{
+  async function loadHtml2Canvas(){
+    if(window.html2canvas) return;
+    await new Promise((resolve,reject)=>{
+      const s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      s.onload=resolve; s.onerror=reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  async function shareAsPng(){
+    const btn=document.getElementById('shareBtn');
+    const origHTML=btn.innerHTML;
+    btn.disabled=true;
+    btn.innerHTML='<span>…</span>';
+    try {
+      await loadHtml2Canvas();
+      const panel=document.getElementById('panelCur');
+      const label=document.getElementById('pl').textContent;
+
+      // Freeze animations so events render at full opacity instead of mid-keyframe
+      const animated=panel.querySelectorAll('.ev,.compact-ev,.overflow-ev,.allday-block');
+      animated.forEach(el=>{
+        el.style.animation='none';
+        el.style.opacity=el.classList.contains('ev')?'0.9':'1';
+      });
+
+      const gridCanvas=await html2canvas(panel,{
+        scale:2,
+        useCORS:true,
+        backgroundColor:'#ffffff',
+        logging:false,
+        height:panel.scrollHeight,
+        windowHeight:panel.scrollHeight,
+      });
+
+      // Restore animations
+      animated.forEach(el=>{ el.style.animation=''; el.style.opacity=''; });
+
+      // Compose: green title bar on top, then the calendar
+      const S=2;
+      const barH=52*S;
+      const out=document.createElement('canvas');
+      out.width=gridCanvas.width;
+      out.height=gridCanvas.height+barH;
+      const ctx=out.getContext('2d');
+
+      // Header bar
+      ctx.fillStyle='#1a3d2b';
+      ctx.fillRect(0,0,out.width,barH);
+
+      // Logo text
+      ctx.fillStyle='#ffffff';
+      ctx.font=`700 ${15*S}px "DM Sans",sans-serif`;
+      ctx.textBaseline='middle';
+      ctx.fillText('Parknest',16*S,barH*0.32);
+
+      // Week/day label
+      ctx.font=`400 ${11*S}px "DM Sans",sans-serif`;
+      ctx.fillStyle='#b7e4c7';
+      ctx.fillText(label,16*S,barH*0.72);
+
+      // Calendar grid
+      ctx.drawImage(gridCanvas,0,barH);
+
+      const blob=await new Promise(resolve=>out.toBlob(resolve,'image/png'));
+      const days=getDays().sort((a,b)=>a-b);
+      const s=days[0];
+      const fname=vm==='week'
+        ?`parknest-week-${s.getFullYear()}-${p2(s.getMonth()+1)}-${p2(s.getDate())}.png`
+        :`parknest-${s.getFullYear()}-${p2(s.getMonth()+1)}-${p2(s.getDate())}.png`;
+
+      // 1. Clipboard write — raw blob, no filename, pastes as image everywhere
+      if(navigator.clipboard&&window.ClipboardItem){
+        try{
+          await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+          showShareToast('Afbeelding gekopieerd — plak in WhatsApp of een andere app');
+          return;
+        }catch(_){}
+      }
+      // 2. Web Share API — fallback for platforms without clipboard write
+      const file=new File([blob],fname,{type:'image/png'});
+      if(navigator.canShare&&navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:'Parknest Rooster'});
+      } else {
+        // 3. Download fallback
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a');
+        a.href=url; a.download=fname;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch(err){
+      // Ensure animations are restored on error too
+      document.getElementById('panelCur').querySelectorAll('.ev,.compact-ev,.overflow-ev,.allday-block')
+        .forEach(el=>{ el.style.animation=''; el.style.opacity=''; });
+      console.error('shareAsPng',err);
+      alert('Afbeelding maken mislukt:\n'+err.message);
+    } finally {
+      btn.disabled=false;
+      btn.innerHTML=origHTML;
+    }
+  }
+
+  document.getElementById('shareBtn').addEventListener('click',shareAsPng);
+})();
+
+fetchEvents();

@@ -1,0 +1,49 @@
+User-agent: Amazonbot
+User-agent: CCBot
+User-agent: Barkrowler
+User-agent: DotBot
+User-agent: Bytespider
+Disallow: /
+
+User-agent: GPTBot
+Allow: /$
+Allow: /producten/
+Allow: /over-ons/
+Allow: /sitemap*.xml
+Disallow: /*-or-*
+Crawl-delay: 10
+
+User-agent: anthropic-ai
+User-agent: Claude-Web
+Allow: /$
+Allow: /producten/
+Allow: /sitemap*.xml
+Disallow: /*-or-*
+Crawl-delay: 10
+
+User-agent: PerplexityBot
+Allow: /$
+Allow: /producten/
+Allow: /sitemap*.xml
+Disallow: /*-or-*
+Crawl-delay: 10
+
+User-agent: Google-Extended
+Allow: /$
+Allow: /producten/
+Allow: /sitemap*.xml
+Disallow: /*-or-*
+Crawl-delay: 10
+
+User-agent: Googlebot
+User-agent: Bingbot
+Allow: /
+Disallow: /*-or-*
+
+User-agent: *
+Disallow: /wp-admin/
+Disallow: /wp-login.php
+Disallow: /*-or-*
+Disallow: /producten/product-categorie-*-or-*
+Disallow: /*?*filter*
+Crawl-delay: 5

@@ -1,0 +1,26 @@
+{
+  "id": "https://parknest.nl/parknest-rooster.html",
+  "name": "Parknest Vrijwilligersrooster",
+  "short_name": "Parknest",
+  "description": "Vrijwilligersrooster van Stichting Buurtbelang Parknest",
+  "start_url": "https://parknest.nl/parknest-rooster.html",
+  "scope": "https://parknest.nl/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a3d2b",
+  "theme_color": "#1a3d2b",
+  "icons": [
+    {
+      "src": "https://parknest.nl/wp-content/uploads/2024/09/Parknest-logo-transp-shadow.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://parknest.nl/wp-content/uploads/2024/09/Parknest-logo-transp-shadow.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
