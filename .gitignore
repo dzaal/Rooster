@@ -18,6 +18,13 @@ wp-content/backup*/
 wordfence-waf.php
 .htaccess
 
+# Other site files not part of this project
+robots.txt
+lift.html
+llms.txt
+site.webmanifest
+wp_styling.js
+
 # OS / editor junk
 .DS_Store
 Thumbs.db
