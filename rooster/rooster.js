@@ -1,4 +1,23 @@
-const CONFIG = window.ROOSTER_CONFIG || { auth:{accounts:[]}, crew:[], defaults:{} };
+const CONFIG = window.ROOSTER_CONFIG || { branding:{}, auth:{accounts:[]}, crew:[], defaults:{} };
+const B = CONFIG.branding || {};
+
+function applyBranding(){
+  const logo = B.logoUrl || '';
+  const short = B.appShortName || '';
+  const name  = B.appName || short;
+  const color = B.themeColor || '#1a3d2b';
+  if(name)  document.title = name;
+  const setMeta = (n,v) => { const m=document.querySelector(`meta[name="${n}"]`); if(m&&v) m.content=v; };
+  setMeta('application-name', name);
+  setMeta('apple-mobile-web-app-title', short);
+  setMeta('theme-color', color);
+  const appleIcon = document.getElementById('appleIcon');
+  if(appleIcon && logo) appleIcon.href = logo;
+  const logoImg = document.getElementById('logoImg');
+  if(logoImg && logo){ logoImg.src = logo; logoImg.alt = short; }
+  const phTitle = document.querySelector('#printHeader .ph-title');
+  if(phTitle && name) phTitle.textContent = name;
+}
 const ICS_ROOSTER  = CONFIG.defaults.calendarUrl || 'https://calendar.google.com/calendar/ical/f0a70a3f3862ea4c0202a62f4bd8b3298a1cd69d53e57944c0dcaeab39b54dc6%40group.calendar.google.com/public/basic.ics';
 const ICS_AFSPRAKEN= CONFIG.defaults.appointmentUrl || 'https://calendar.google.com/calendar/ical/f99b1ad32b1aa1f543623c166d7b74e45155aee446a941d7d0342b38b41da904%40group.calendar.google.com/public/basic.ics';
 const ICS = ICS_ROOSTER; // backward compat
@@ -544,7 +563,7 @@ async function addShiftAction(){
     desc: `Toegevoegd door ${loggedInUser.email}`,
     start: dtStart.toISOString(),
     end: dtEnd.toISOString(),
-    location: 'Parknest',
+    location: B.defaultLocation || '',
     active: true
   };
 
@@ -1431,19 +1450,19 @@ document.addEventListener('keydown', e => {
 // ── PWA: MANIFEST + INSTALL BUTTON ─────────────────────
 // Build manifest as a proper data-URI (not blob:) so Android/Play Protect
 // does not flag it as an unknown-origin app
-const iconUrl = 'https://parknest.nl/wp-content/uploads/2024/09/Parknest-logo-transp-shadow.png';
+const iconUrl = B.logoUrl || '';
 
 const manifest = {
-  id: 'https://parknest.nl/parknest-rooster.html',
-  name: 'Parknest Vrijwilligersrooster',
-  short_name: 'Parknest',
-  description: 'Vrijwilligersrooster van Stichting Buurtbelang Parknest',
-  start_url: 'https://parknest.nl/parknest-rooster.html',
-  scope: 'https://parknest.nl/',
-  display: 'standalone',
-  orientation: 'any',
-  background_color: '#1a3d2b',
-  theme_color: '#1a3d2b',
+  id:               B.startUrl || location.href,
+  name:             B.appName || 'Rooster',
+  short_name:       B.appShortName || 'Rooster',
+  description:      B.appDescription || '',
+  start_url:        B.startUrl || location.href,
+  scope:            B.siteUrl ? B.siteUrl + '/' : '/',
+  display:          'standalone',
+  orientation:      'any',
+  background_color: B.themeColor || '#1a3d2b',
+  theme_color:      B.themeColor || '#1a3d2b',
   icons: [
     { src: iconUrl, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
     { src: iconUrl, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
@@ -1456,7 +1475,7 @@ if(!isLocal){
   // manifest link already points to parknest-manifest.json — leave it
 } else {
   // Replace with inline data-URI to avoid CORS error on local file
-  const manifest={id:'/rooster.html',name:'Parknest Vrijwilligersrooster',short_name:'Parknest',start_url:'/rooster.html',scope:'/',display:'standalone',background_color:'#1a3d2b',theme_color:'#1a3d2b',prefer_related_applications:false,icons:[{src:iconUrl,sizes:'192x192',type:'image/png',purpose:'any'},{src:iconUrl,sizes:'512x512',type:'image/png',purpose:'any'},{src:iconUrl,sizes:'512x512',type:'image/png',purpose:'maskable'}]};
+  const manifest={id:'/rooster.html',name:B.appName||'Rooster',short_name:B.appShortName||'Rooster',start_url:'/rooster.html',scope:'/',display:'standalone',background_color:B.themeColor||'#1a3d2b',theme_color:B.themeColor||'#1a3d2b',prefer_related_applications:false,icons:[{src:iconUrl,sizes:'192x192',type:'image/png',purpose:'any'},{src:iconUrl,sizes:'512x512',type:'image/png',purpose:'any'},{src:iconUrl,sizes:'512x512',type:'image/png',purpose:'maskable'}]};
   document.getElementById('manifestLink').href='data:application/manifest+json,'+encodeURIComponent(JSON.stringify(manifest));
 }
 
@@ -1631,7 +1650,7 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
       ctx.fillStyle='#ffffff';
       ctx.font=`700 ${15*S}px "DM Sans",sans-serif`;
       ctx.textBaseline='middle';
-      ctx.fillText('Parknest',16*S,barH*0.32);
+      ctx.fillText(B.appShortName||'',16*S,barH*0.32);
 
       // Week/day label
       ctx.font=`400 ${11*S}px "DM Sans",sans-serif`;
@@ -1645,8 +1664,8 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
       const days=getDays().sort((a,b)=>a-b);
       const s=days[0];
       const fname=vm==='week'
-        ?`parknest-week-${s.getFullYear()}-${p2(s.getMonth()+1)}-${p2(s.getDate())}.png`
-        :`parknest-${s.getFullYear()}-${p2(s.getMonth()+1)}-${p2(s.getDate())}.png`;
+        ?`${B.shareFilePrefix||'rooster'}-week-${s.getFullYear()}-${p2(s.getMonth()+1)}-${p2(s.getDate())}.png`
+        :`${B.shareFilePrefix||'rooster'}-${s.getFullYear()}-${p2(s.getMonth()+1)}-${p2(s.getDate())}.png`;
 
       // 1. Clipboard write — raw blob, no filename, pastes as image everywhere
       if(navigator.clipboard&&window.ClipboardItem){
@@ -1659,7 +1678,7 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
       // 2. Web Share API — fallback for platforms without clipboard write
       const file=new File([blob],fname,{type:'image/png'});
       if(navigator.canShare&&navigator.canShare({files:[file]})){
-        await navigator.share({files:[file],title:'Parknest Rooster'});
+        await navigator.share({files:[file],title:B.appName||'Rooster'});
       } else {
         // 3. Download fallback
         const url=URL.createObjectURL(blob);
@@ -1684,4 +1703,5 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
   document.getElementById('shareBtn').addEventListener('click',shareAsPng);
 })();
 
+applyBranding();
 fetchEvents();
