@@ -473,11 +473,17 @@ echo $data;`;
 }
 
 function updateAuthUI(){
+  const authBar=document.getElementById('authBar');
+  const editor=document.getElementById('editorPanel');
+  if(window.ROOSTER_NO_AUTH){
+    if(authBar) authBar.style.display='none';
+    if(editor) editor.style.display='none';
+    return;
+  }
   const info=document.getElementById('loginInfo');
   const logoutBtn=document.getElementById('logoutBtn');
   const googleBtn=document.getElementById('googleBtn');
   const googleStatus=document.getElementById('googleStatus');
-  const editor=document.getElementById('editorPanel');
 
   if(loggedInUser){
     info.textContent=`Ingelogd als ${loggedInUser.name} (${loggedInUser.email})`;
