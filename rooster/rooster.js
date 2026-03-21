@@ -49,7 +49,7 @@ function showShareToast(msg){
   clearTimeout(t._hide);
   t._hide=setTimeout(()=>t.classList.remove('on'),3000);
 }
-function hasGoogleConfig(){ return !!(CONFIG.defaults.googleClientId && CONFIG.defaults.googleApiKey && CONFIG.defaults.googleCalendarId); }
+function hasGoogleConfig(){ return !window.ROOSTER_NO_AUTH && !!(CONFIG.defaults.googleClientId && CONFIG.defaults.googleApiKey && CONFIG.defaults.googleCalendarId); }
 let googleClientLoaded = false;
 let googleSignedIn = false;
 function crewColor(name){ const user = CONFIG.crew.find(c=>c.name.toLowerCase()===name.toLowerCase()); return user?.color || PALETTES[nameHash(name)][0] || '#dbeeff'; }
