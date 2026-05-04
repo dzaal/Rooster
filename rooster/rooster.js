@@ -147,7 +147,37 @@ const SKIP=2;
 const DS=['Zo','Ma','Di','Wo','Do','Vr','Za'];
 const DL=['Zondag','Maandag','Dinsdag','Woensdag','Donderdag','Vrijdag','Zaterdag'];
 const MN=['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
-const HH=22; // px per hour on screen
+let HH=22; // px per hour on screen; day view recalculates this from viewport height
+
+function updateDayViewMetrics(hourCount){
+  if(vm!=='day' || window._printMaxCols){
+    HH=22;
+    document.body.style.removeProperty('--hh');
+    document.body.style.removeProperty('--day-view-width');
+    return;
+  }
+
+  const viewportH = window.innerHeight || document.documentElement.clientHeight || 800;
+  const viewportW = window.innerWidth || document.documentElement.clientWidth || 1200;
+  const headerH = document.querySelector('header')?.offsetHeight || 64;
+  const baseFont = parseFloat(getComputedStyle(document.body).fontSize) || 16;
+  const minHourHeight = Math.max(16, Math.round(baseFont * 1.15));
+  const maxHourHeight = 52;
+  const reserveH = 116; // top/bottom padding, day header, all-day row allowance
+  const usableGridH = Math.max(minHourHeight * hourCount, viewportH - headerH - reserveH);
+
+  HH = Math.max(
+    minHourHeight,
+    Math.min(maxHourHeight, Math.floor(usableGridH / Math.max(hourCount, 1)))
+  );
+
+  const a4Height = reserveH + hourCount * HH;
+  const targetWidth = Math.floor(a4Height / Math.SQRT2);
+  const boundedWidth = Math.max(280, Math.min(targetWidth, viewportW - 20, 620));
+
+  document.body.style.setProperty('--hh', `${HH}px`);
+  document.body.style.setProperty('--day-view-width', `${boundedWidth}px`);
+}
 
 let allEv=[],vm='week',anc=sowk(new Date());
 
@@ -714,6 +744,7 @@ function renderInto(container, anchorDate){
   const byDay={};days.forEach(d=>byDay[d.toDateString()]=[]);
   exp.forEach(ev=>{const ds=new Date(ev.start);ds.setHours(0,0,0,0);const k=ds.toDateString();if(byDay[k]!==undefined)byDay[k].push(ev)});
   const {sh,eh}=dynamicHours(exp);
+  updateDayViewMetrics(eh-sh);
   const cm={};let ci=0;
 
   if(vm==='week' && isPhoneLandscape()){
