@@ -47,6 +47,9 @@ header{background:var(--gd);color:var(--cr);padding:8px 10px;display:flex;align-
 .vt{display:flex;background:rgba(255,255,255,.15);border-radius:8px;overflow:hidden;border:1.5px solid rgba(255,255,255,.3);flex-shrink:0}
 .vb{border:none;background:transparent;padding:5px 10px;font-family:'DM Sans',sans-serif;font-size:.76rem;font-weight:500;color:rgba(255,255,255,.75);cursor:pointer;transition:.13s}
 .vb.on{background:var(--gl);color:#fff}
+.layer-toggle{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);border-radius:8px;border:1.5px solid rgba(255,255,255,.3);padding:5px 10px;flex-shrink:0;font-size:.76rem;font-weight:500;color:rgba(255,255,255,.75)}
+.layer-toggle input[type="checkbox"]{width:16px;height:16px;cursor:pointer;accent-color:var(--gl)}
+.layer-toggle label{cursor:pointer;user-select:none}
 .nb{background:rgba(255,255,255,.18);color:#fff;border:none;border-radius:8px;width:34px;height:34px;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;flex-shrink:0}
 .nb:hover{background:rgba(255,255,255,.3)}
 .nb svg{pointer-events:none}
@@ -128,6 +131,9 @@ body.view-day .ce.sharp{border-top-width:2px}
 .ev.ev-top{opacity:1!important;box-shadow:0 4px 18px rgba(0,0,0,.28)!important;transform:translateY(-1px);z-index:100!important;outline:2px solid rgba(0,0,0,.18);outline-offset:1px}
 .ev .et{font-weight:600;font-size:.75rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ev .es{font-size:.67rem;opacity:.8;white-space:nowrap}
+.ev.main-event{background:#e8e8e8!important;color:#3a3a3a!important;border:1px solid #bdc3c7!important;opacity:.92!important;animation:evInOpacity var(--ev-dur) ease-out forwards!important;transform:none!important}
+.ev.main-event:before{content:attr(data-main-label);position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-25deg);font-size:1rem;font-weight:700;color:rgba(40,40,40,0.23);pointer-events:none;white-space:nowrap}
+body.main-layer-hidden .ev.main-event{display:none}
 /* overflow hidden events: invisible by default, revealed on cell hover */
 .ev-overflow{position:absolute;bottom:2px;right:2px;background:rgba(30,30,30,.7);color:#fff;font-size:.58rem;font-weight:700;border-radius:4px;padding:1px 5px;z-index:15;pointer-events:none;letter-spacing:.3px}
 .ce.has-overflow:hover{z-index:200;background:#f0f6ff;box-shadow:0 4px 20px rgba(0,0,0,.2)}
