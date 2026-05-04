@@ -43,7 +43,7 @@ window.ROOSTER_CONFIG = {
     googleCalendarId:     'f0a70a3f3862ea4c0202a62f4bd8b3298a1cd69d53e57944c0dcaeab39b54dc6@group.calendar.google.com',
     calendarUrl:          'https://calendar.google.com/calendar/ical/f0a70a3f3862ea4c0202a62f4bd8b3298a1cd69d53e57944c0dcaeab39b54dc6%40group.calendar.google.com/public/basic.ics',
     appointmentUrl:       'https://calendar.google.com/calendar/ical/f99b1ad32b1aa1f543623c166d7b74e45155aee446a941d7d0342b38b41da904%40group.calendar.google.com/public/basic.ics',
-    mainEventCalendarUrl: 'https://calendar.google.com/calendar/ical/parknestflevopark%40gmail.com/public/full.ics',
+    mainEventCalendarUrl: 'https://calendar.google.com/calendar/ical/media%40parknest.nl/public/full.ics',
     // schoolHolidayCalendarUrl: '',  // optional: ICS URL to replace built-in Amsterdam school dates
     filterKeywords:       ['reguliere dag','reguliere midddag']
   }
