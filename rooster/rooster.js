@@ -218,12 +218,11 @@ function updateDayViewMetrics(hourCount){
 let allEv=[],vm='week',anc=sowk(new Date());
 
 // Compute dynamic start/end hour from a set of events (+1 margin each side)
-// Excludes afspraken and all-day events (those are shown in the allday row)
+// Excludes only all-day events; timed afspraken are shown in the grid too.
 function dynamicHours(evList){
   let minH=23,maxH=0;
   evList.forEach(ev=>{
     if(ev.start._ad||ev.end?._ad)return;
-    if(ev._cal==='afspraken')return;
     const sh=ev.start.getHours()+ev.start.getMinutes()/60;
     // Skip events starting at or after 23:00 — they are rare edge cases
     if(sh>=23)return;
