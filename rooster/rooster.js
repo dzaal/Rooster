@@ -771,6 +771,9 @@ function renderInto(container, anchorDate){
 }
 
 function render(dir=0){
+  document.body.classList.toggle('view-day', vm==='day');
+  document.body.classList.toggle('view-week', vm==='week');
+
   const step = vm==='week' ? 7 : 1;
   const inner  = document.getElementById('slideInner');
   const panCur = document.getElementById('panelCur');
