@@ -55,6 +55,17 @@ header{background:var(--gd);color:var(--cr);padding:8px 10px;display:flex;align-
 #ls{font-size:.7rem;background:rgba(255,255,255,.15);color:var(--gp);border-radius:16px;padding:3px 9px;font-weight:600;white-space:nowrap;flex-shrink:0}
 .cw{overflow-x:auto;padding:13px 8px 36px;max-width:100%}
 #cg{display:grid;border-radius:0;overflow:visible;box-shadow:var(--sh);background:#fff;margin:0 auto;border:2.5px solid #222}
+body.view-day{--hh:48px}
+body.view-day .cw{max-width:560px;margin-left:auto;margin-right:auto;padding:18px 14px 42px}
+body.view-day #cg{border-width:4px;box-shadow:0 10px 32px rgba(26,61,43,.16)}
+body.view-day .ch,
+body.view-day .ch.th{border-bottom-width:3px}
+body.view-day .ch,
+body.view-day .ch.th,
+body.view-day .tl,
+body.view-day .ce{border-right-width:3px}
+body.view-day .allday-row{border-bottom-width:3px}
+body.view-day .ce.sharp{border-top-width:2px}
 /* split-week: two stacked grids on small screens */
 .split-wrap{display:flex;flex-direction:column;gap:0;padding:13px 8px 36px}
 .sub-grid{display:grid;border-radius:0;overflow:visible;background:#fff;width:100%}
