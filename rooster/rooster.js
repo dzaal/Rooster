@@ -594,14 +594,22 @@ function deleteLocalShift(localId){
 }
 
 function initEditFeatures(){
-  document.getElementById('logoutBtn').addEventListener('click', logoutAction);
-  const googleBtn=document.getElementById('googleBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const googleBtn = document.getElementById('googleBtn');
+  const addShiftBtn = document.getElementById('addShiftBtn');
+  const newShiftDate = document.getElementById('newShiftDate');
+
+  logoutBtn?.addEventListener('click', logoutAction);
   googleBtn?.addEventListener('click', async()=>{
     if(googleSignedIn){ signOutGoogle(); } else { await signInGoogle(); }
   });
-  document.getElementById('addShiftBtn').addEventListener('click', addShiftAction);
-  document.getElementById('newShiftDate').value = (new Date()).toISOString().slice(0,10);
-  populateCrewPicker();
+
+  if(addShiftBtn && newShiftDate){
+    addShiftBtn.addEventListener('click', addShiftAction);
+    newShiftDate.value = (new Date()).toISOString().slice(0,10);
+    populateCrewPicker();
+  }
+
   showCrewLegend();
   updateAuthUI();
 }
