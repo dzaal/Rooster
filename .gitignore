@@ -29,3 +29,6 @@ wp_styling.js
 .DS_Store
 Thumbs.db
 *.log
+
+# Local workflow notes — not part of the project
+WORKFLOW.md
