@@ -70,10 +70,15 @@
       Staand (A4 ↕)
     </button>
   </div>
-  <button class="tb" id="shareBtn" title="Deel als afbeelding (PNG)" style="padding:4px 8px;display:flex;align-items:center;gap:4px;font-size:.72rem">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-    <span class="share-label">Deel</span>
-  </button>
+  <div class="tb-split" id="shareBtnGroup">
+    <button class="tb tb-main" id="shareBtn" title="Deel als afbeelding" style="padding:4px 8px;display:flex;align-items:center;gap:4px;font-size:.72rem">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+      <span class="share-label">Deel</span>
+    </button>
+    <button class="tb tb-arrow" id="shareDrop" title="Kopieer link" style="padding:5px 7px">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+    </button>
+  </div>
   <button id="installBtn" title="Voeg toe aan startscherm">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v13M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
     Installeer
@@ -107,7 +112,7 @@
 
 <script>window.ROOSTER_NO_AUTH = true;</script>
 <script src="rooster/rooster-config.js"></script>
-<script src="rooster/rooster.js"></script>
+<script src="rooster/rooster.js?v=102"></script>
 </body>
 </html>
  

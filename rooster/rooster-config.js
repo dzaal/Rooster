@@ -2,7 +2,7 @@ window.ROOSTER_CONFIG = {
 
   // ── BRANDING ─────────────────────────────────────────────────────────────
   branding: {
-    version:          '1.0.0',
+    version:          '1.02',
     appName:          'Parknest Vrijwilligersrooster',
     appShortName:     'Parknest',
     appDescription:   'Vrijwilligersrooster van Stichting Buurtbelang Parknest',
@@ -31,7 +31,10 @@ window.ROOSTER_CONFIG = {
     {name: 'Emma',    color: '#5575e0'},
     {name: 'Niels',   color: '#1a28c4'},
     {name: 'Roos',    color: '#93014d'},
-    {name: 'Zirk',    color: '#570be2', bday: '18-07'}
+    {name: 'Zirk',    color: '#570be2', bday: '18-07'},
+    {name: 'Flavia',  color: '#ff6b35'},
+    {name: 'Rolf',    color: '#06d6a0'},
+    {name: 'Victoria',color: '#ef476f'}
   ],
 
   // ── DEFAULTS & API KEYS ──────────────────────────────────────────────────
@@ -45,6 +48,8 @@ window.ROOSTER_CONFIG = {
     appointmentUrl:       'https://calendar.google.com/calendar/ical/f99b1ad32b1aa1f543623c166d7b74e45155aee446a941d7d0342b38b41da904%40group.calendar.google.com/public/basic.ics',
     mainEventCalendarUrl: 'https://calendar.google.com/calendar/ical/media%40parknest.nl/public/full.ics',
     // schoolHolidayCalendarUrl: '',  // optional: ICS URL to replace built-in Amsterdam school dates
-    filterKeywords:       ['reguliere dag','reguliere midddag']
+    filterKeywords:       ['reguliere dag','reguliere midddag'],
+    fontScale:            1,    // screen font size factor (1 = no change)
+    printFontScale:       2,    // week-view print font size factor (2 = twice as large; day view always prints at 1×)
   }
 };

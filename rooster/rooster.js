@@ -150,7 +150,7 @@ const MN = Array.from({length:12},(_,i)=>new Intl.DateTimeFormat(_locale,{month:
 
 // UI string translations
 const _UI_STRINGS = {
-  nl:{today:'Vandaag',week:'Week',day:'Dag',events:'Events',print:'Print',share:'Deel',install:'Installeer',loading:'Laden\u2026',loadFail:'\u26a0 Laden mislukt',wkShort:'Wk',calFail:'Kalender kon niet worden geladen'},
+  nl:{today:'Today',week:'Week',day:'Day',events:'Events',print:'Print',share:'Deel',install:'Installeer',loading:'Laden\u2026',loadFail:'\u26a0 Laden mislukt',wkShort:'Wk',calFail:'Kalender kon niet worden geladen'},
   en:{today:'Today',week:'Week',day:'Day',events:'Events',print:'Print',share:'Share',install:'Install',loading:'Loading\u2026',loadFail:'\u26a0 Load failed',wkShort:'Wk',calFail:'Calendar could not be loaded'},
   de:{today:'Heute',week:'Woche',day:'Tag',events:'Events',print:'Drucken',share:'Teilen',install:'Installieren',loading:'Laden\u2026',loadFail:'\u26a0 Laden fehlgeschlagen',wkShort:'KW',calFail:'Kalender konnte nicht geladen werden'},
   tr:{today:'Bug\xfcn',week:'Hafta',day:'G\xfcn',events:'Etkinlik',print:'Yazd\u0131r',share:'Payla\u015f',install:'Y\xfckle',loading:'Y\xfckleniyor\u2026',loadFail:'\u26a0 Y\xfckleme ba\u015far\u0131s\u0131z',wkShort:'Hf',calFail:'Takvim y\xfcklenemedi'},
@@ -188,7 +188,7 @@ let HH=40; // px per hour on screen; day view recalculates this from viewport he
 function updateDayViewMetrics(hourCount){
   if(vm!=='day' || window._printMaxCols){
     HH=40;
-    document.body.style.removeProperty('--hh');
+    document.body.style.setProperty('--hh', `${HH}px`);
     document.body.style.removeProperty('--day-view-width');
     return;
   }
@@ -216,6 +216,18 @@ function updateDayViewMetrics(hourCount){
 }
 
 let allEv=[],vm='week',anc=sowk(new Date());
+// Restore view/date from URL hash (e.g. #day/2026-05-10 or #week/2026-05-04)
+(()=>{
+  const m=location.hash.match(/^#(week|day)\/(\d{4}-\d{2}-\d{2})$/);
+  if(m){
+    const [,mode,ds]=m;
+    const d=new Date(ds+'T00:00:00');
+    if(!isNaN(d)){
+      vm=mode;
+      anc=mode==='week'?sowk(d):d;
+    }
+  }
+})();
 
 // Compute dynamic start/end hour from a set of events (+1 margin each side)
 // Excludes only all-day events; timed afspraken are shown in the grid too.
@@ -237,7 +249,8 @@ function dynamicHours(evList){
   if(minH>maxH){minH=9;maxH=18;} // fallback when no timed events
   // 1 hour margin before earliest shift; day-view minimum end 19:00
   const minEh = vm==='day' ? 19 : 0;
-  return{sh:Math.max(0,Math.floor(minH)-1), eh:Math.max(Math.min(23,Math.ceil(maxH)),minEh)};
+  // +1 end margin so events ending on the hour have a closing line; cap at 24 (midnight)
+  return{sh:Math.max(0,Math.floor(minH)-1), eh:Math.max(Math.min(24,Math.ceil(maxH)+1),minEh)};
 }
 
 function sowk(d){const c=new Date(d),dw=c.getDay(),df=dw===0?-6:1-dw;c.setDate(c.getDate()+df);c.setHours(0,0,0,0);return c}
@@ -988,6 +1001,14 @@ function updateLabel(){
       document.getElementById('pl').textContent=`${UI.week} ${weekNum} : ${s.getDate()}–${e.getDate()} ${MN[e.getMonth()]} ${yearShort}`;
     }
   }
+  syncUrl();
+}
+
+function syncUrl(){
+  const days=getDays().sort((a,b)=>a-b);
+  const d=days[0];
+  const ds=`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
+  history.replaceState(null,'',location.pathname+'#'+vm+'/'+ds);
 }
 
 function scrollToToday(){
@@ -1368,7 +1389,7 @@ function buildGridWithCompact(container, colDefs, weekendDays, today, exp, cm, c
     const refHeader=sgB.querySelector('.ch[data-toggle-day]');
     if(refHeader){
       const chH=refHeader.getBoundingClientRect().height;
-      sgC.querySelectorAll('.ch[data-toggle-day]').forEach(el=>{
+      sgC.querySelectorAll('.compact-card-hdr').forEach(el=>{
         el.style.height=chH+'px';
         el.style.boxSizing='border-box';
       });
@@ -1989,13 +2010,15 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
     document.getElementById('printMeta').textContent=label;
 
     pageStyle.textContent=orientation==='landscape'
-      ? '@page{size:A4 landscape;margin:6mm 8mm}'
+      ? '@page{size:A4 landscape;margin:4mm 6mm}'
       : '@page{size:A4 portrait;margin:8mm 8mm}';
 
     // Compute zoom to fit on one page
-    // A4 landscape usable: ~277mm wide × ~183mm tall; portrait: ~194mm × ~270mm
-    const mmW = orientation==='landscape' ? 277 : 194;
-    const mmH = orientation==='landscape' ? 183 : 270;
+    // A4 landscape: 297×210mm, @page margin 4mm top/bottom 6mm left/right → 285×202mm usable
+    // A4 portrait:  210×297mm, @page margin 8mm all sides              → 194×281mm usable
+    // Subtract a few mm as safety margin so browsers never clip the edge
+    const mmW = orientation==='landscape' ? 280 : 190;
+    const mmH = orientation==='landscape' ? 196 : 275;
     const pxPerMm = 96/25.4;
     const pageW = mmW * pxPerMm;
     const pageH = mmH * pxPerMm;
@@ -2018,21 +2041,35 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
     window._printMaxCols = 99;
     renderInto(panel, anc);
 
-    // Recalculate zoom after re-render
-    const contentH2 = panel.scrollHeight + 20;
-    const contentW2 = panel.scrollWidth;
-    const zoom2 = Math.min(pageH/contentH2, pageW/contentW2, 1);
-    panel.style.zoom = zoom2;
-    document.getElementById('printHeader').style.zoom = zoom2;
+    // Wait one RAF so the compact-header height-sync RAF runs first,
+    // then recalculate zoom from the final layout and print.
+    requestAnimationFrame(()=>{
+      // Measure the actual print header height by temporarily showing it
+      const phEl = document.getElementById('printHeader');
+      phEl.style.cssText='display:flex!important;visibility:hidden;position:absolute';
+      const hdrH = phEl.offsetHeight;
+      phEl.style.cssText='';
 
-    window.print();
-    window.addEventListener('afterprint',()=>{
-      document.body.classList.remove('print-landscape','print-portrait');
-      panel.style.zoom='';
-      document.getElementById('printHeader').style.zoom='';
-      window._printMaxCols = null;
-      render(0); // restore normal render
-    },{once:true});
+      const contentH2 = panel.scrollHeight + hdrH + 8; // +8 small gap between header and grid
+      const contentW2 = panel.scrollWidth;
+      const zoom2 = Math.min(pageH/contentH2, pageW/contentW2, 1);
+      panel.style.zoom = zoom2;
+      document.getElementById('printHeader').style.zoom = zoom2;
+
+      // Apply printFontScale for week view only (scales all rem-based font sizes)
+      const _pfs = vm==='week' ? ((window.ROOSTER_CONFIG&&window.ROOSTER_CONFIG.defaults&&window.ROOSTER_CONFIG.defaults.printFontScale)||1) : 1;
+      if(_pfs !== 1) document.documentElement.style.fontSize = (_pfs * 16) + 'px';
+
+      window.print();
+      window.addEventListener('afterprint',()=>{
+        document.body.classList.remove('print-landscape','print-portrait');
+        panel.style.zoom='';
+        document.getElementById('printHeader').style.zoom='';
+        document.documentElement.style.fontSize='';
+        window._printMaxCols = null;
+        render(0); // restore normal render
+      },{once:true});
+    });
   }
 
   // Main button → landscape; arrow → dropdown menu
@@ -2072,7 +2109,7 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
   }
 
   async function shareAsPng(){
-    const btn=document.getElementById('shareBtn');
+    const btn=document.getElementById('shareDrop');
     const origHTML=btn.innerHTML;
     btn.disabled=true;
     btn.innerHTML='<span>…</span>';
@@ -2133,7 +2170,14 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
         ?`parknest-week-${s.getFullYear()}-${p2(s.getMonth()+1)}-${p2(s.getDate())}.png`
         :`parknest-${s.getFullYear()}-${p2(s.getMonth()+1)}-${p2(s.getDate())}.png`;
 
-      // 1. Clipboard write — raw blob, no filename, pastes as image everywhere
+      const file=new File([blob],fname,{type:'image/png'});
+      const shareUrl=location.href;
+      // 1. Web Share API — native share sheet on mobile, picks WhatsApp etc directly
+      if(navigator.canShare&&navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:'Parknest Rooster',text:label+'\n'+shareUrl});
+        return;
+      }
+      // 2. Clipboard write — desktop: pastes as image
       if(navigator.clipboard&&window.ClipboardItem){
         try{
           await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
@@ -2141,19 +2185,13 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
           return;
         }catch(_){}
       }
-      // 2. Web Share API — fallback for platforms without clipboard write
-      const file=new File([blob],fname,{type:'image/png'});
-      if(navigator.canShare&&navigator.canShare({files:[file]})){
-        await navigator.share({files:[file],title:'Parknest Rooster'});
-      } else {
-        // 3. Download fallback
-        const url=URL.createObjectURL(blob);
-        const a=document.createElement('a');
-        a.href=url; a.download=fname;
-        document.body.appendChild(a); a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }
+      // 3. Download fallback
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url; a.download=fname;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch(err){
       // Ensure animations are restored on error too
       document.getElementById('panelCur').querySelectorAll('.ev,.compact-ev,.overflow-ev,.allday-block')
@@ -2166,10 +2204,39 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
     }
   }
 
+  // Main share button: generate screenshot and open native share sheet
+  // On mobile this lets you pick WhatsApp etc and sends the calendar image + link text
+  // On desktop (no Web Share API): downloads the PNG file
   document.getElementById('shareBtn').addEventListener('click',shareAsPng);
+
+  // Arrow button: copy the URL link to clipboard
+  document.getElementById('shareDrop').addEventListener('click',async()=>{
+    syncUrl();
+    const url=location.href;
+    try{
+      await navigator.clipboard.writeText(url);
+    }catch(_){
+      const inp=document.createElement('input');
+      inp.value=url; document.body.appendChild(inp); inp.select();
+      document.execCommand('copy'); document.body.removeChild(inp);
+    }
+    showShareToast('Link gekopieerd!');
+  });
 })();
 
 applyLocaleUI();
+
+// Apply screen font scale from config (printFontScale is handled in printAs — week view only)
+(()=>{
+  const d = window.ROOSTER_CONFIG && window.ROOSTER_CONFIG.defaults || {};
+  const fs = d.fontScale || 1;
+  if(fs !== 1){
+    const s = document.createElement('style');
+    s.textContent = `html{font-size:${fs * 16}px}`;
+    document.head.appendChild(s);
+  }
+})();
+
 fetchEvents();
 
 // Auto-refresh every 15 minutes (silent — no skeleton, calendar stays visible)
