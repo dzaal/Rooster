@@ -2,6 +2,8 @@
 
 A lightweight, installable web app that combines multiple Google Calendars into a single volunteer schedule — shareable, printable, and fully configurable.
 
+Built for **Parknest**, a group of volunteers in Amsterdam Flevopark.
+
 It reads several ICS feeds (Google Calendar must be set to share all information publicly) and presents them together as a colour-coded week or day view. Volunteer names, colours and optional birthdays are configured in one file. A keyword filter lets you hide recurring background events that would otherwise clutter the schedule.
 
 Live at: [parknest.nl/rooster.html](https://parknest.nl/rooster.html) — v1.02
