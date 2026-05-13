@@ -235,10 +235,10 @@ function dynamicHours(evList){
   let minH=23,maxH=0;
   evList.forEach(ev=>{
     if(ev.start._ad||ev.end?._ad)return;
-    const sh=ev.start.getHours()+ev.start.getMinutes()/60;
+    const sh=timeHour(ev.start);
     // Skip events starting at or after 23:00 — they are rare edge cases
     if(sh>=23)return;
-    const eh=ev.end?(ev.end.getHours()+ev.end.getMinutes()/60):sh+1;
+    const eh=eventEndHour(ev,24);
     // Cap individual event end at 23 so a midnight-crossing end-time doesn't pull the grid
     const clampedEh=Math.min(23,eh<sh?sh+1:eh);
     // Only rooster/custom shifts drive the start time (avoid main events pulling grid early)
@@ -257,7 +257,39 @@ function sowk(d){const c=new Date(d),dw=c.getDay(),df=dw===0?-6:1-dw;c.setDate(c
 function addD(d,n){const c=new Date(d);c.setDate(c.getDate()+n);return c}
 function same(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate()}
 function p2(n){return String(n).padStart(2,'0')}
-
+function timeHour(d){return d.getHours()+d.getMinutes()/60}
+function eventEndHour(ev, fallbackEndHour){
+  const sh=timeHour(ev.start);
+  if(!ev.end)return sh+1;
+  if(ev.end._ad)return fallbackEndHour;
+  let eh=timeHour(ev.end);
+  if(eh<=sh)eh+=24;
+  return eh;
+}
+function eventEndMs(ev){
+  if(!ev.end)return ev.start.getTime()+3600000;
+  return ev.end.getTime();
+}
+function timedOverlap(a,b){
+  return a.start.getTime()<eventEndMs(b)&&eventEndMs(a)>b.start.getTime();
+}
+function isShiftEvent(ev){
+  return !ev.start?._ad&&ev._cal!=='main'&&ev._cal!=='afspraken'&&ev._cal!=='holiday';
+}
+function rightFloatShiftSlot(ev, dayEvents){
+  if(!isShiftEvent(ev))return null;
+  const overlappingAfspraken=dayEvents.filter(other=>other._cal==='afspraken'&&!other.start?._ad&&timedOverlap(ev,other));
+  if(!overlappingAfspraken.length)return null;
+  const group=dayEvents
+    .filter(other=>isShiftEvent(other)&&overlappingAfspraken.some(afspraak=>timedOverlap(other,afspraak)))
+    .sort((a,b)=>a.start-b.start||(a.title||'').localeCompare(b.title||''));
+  const idx=group.indexOf(ev);
+  if(idx<0)return null;
+  const count=Math.max(1,group.length);
+  const width=count===1?75:Math.min(33,100/(count+1));
+  const occupied=width*count;
+  return {left:100-occupied+(idx*width), right:100-(100-occupied+(idx*width))-width};
+}
 function pDate(line){
   const col=line.indexOf(':'),raw=line.slice(col+1).trim();
   const isD=line.includes('VALUE=DATE')||raw.length===8;
@@ -822,6 +854,48 @@ function applyColor(dv, title){
   }
 }
 
+function topableEventBlocks(){
+  return '.ev.ev-top,.allday-block.ev-top';
+}
+function resetTopBlock(el){
+  el.classList.remove('ev-top');
+  el.style.zIndex=el.dataset.baseZ||'';
+}
+function clearTopBlocks(except){
+  document.querySelectorAll(topableEventBlocks()).forEach(el=>{
+    if(el!==except) resetTopBlock(el);
+  });
+}
+function promoteBlock(el){
+  clearTopBlocks(el);
+  el.classList.add('ev-top');
+  el.style.zIndex='100';
+}
+function toggleBlockToFront(el, point){
+  const isTop=el.classList.contains('ev-top');
+  let target=el;
+  if(isTop&&point&&document.elementsFromPoint){
+    const stack=document.elementsFromPoint(point.x,point.y).filter(candidate=>
+      candidate.classList&&candidate.classList.contains('ev')&&!candidate.classList.contains('main-event')
+    );
+    const currentIdx=stack.indexOf(el);
+    if(currentIdx>-1&&stack.length>1) target=stack[(currentIdx+1)%stack.length];
+  }
+  if(target===el&&isTop){
+    resetTopBlock(el);
+    return;
+  }
+  promoteBlock(target);
+}
+function activateEventBlock(e, el, ev){
+  e.stopPropagation();
+  const touch=e.changedTouches&&e.changedTouches[0];
+  if(touch&&e.cancelable) e.preventDefault();
+  const point=touch?{x:touch.clientX,y:touch.clientY}:('clientX' in e?{x:e.clientX,y:e.clientY}:null);
+  if(touch) showTip({clientX:touch.clientX,clientY:touch.clientY},ev);
+  toggleBlockToFront(el,point);
+}
+
 // Compute dynamic hours using only events that fall on the given column days
 function dynamicHoursForCols(exp, cols){
   const daySet=new Set(cols.flatMap(c=>c.days.map(d=>d.toDateString())));
@@ -951,26 +1025,15 @@ function render(dir=0){
     transitionCompleted = true;
     clearTimeout(transitionTimeout);
 
-    // Move rendered content into center panel
-    const sourcePanel = dir>0 ? panNext : panPrev;
-    if(sourcePanel && sourcePanel.innerHTML){
-      panCur.innerHTML = sourcePanel.innerHTML;
-      panPrev.innerHTML='';
-      panNext.innerHTML='';
-      inner.style.transition='none';
-      inner.style.transform='translateX(-100%)';
-      updateLabel();
-      updateWeekStrip();
-    } else {
-      // Fallback: re-render directly if content transfer failed
-      renderInto(panCur, anc);
-      panPrev.innerHTML='';
-      panNext.innerHTML='';
-      inner.style.transition='none';
-      inner.style.transform='translateX(-100%)';
-      updateLabel();
-      updateWeekStrip();
-    }
+    // Re-render the center panel after the slide so copied markup does not lose
+    // its event listeners (day-label zoom, event selection, tooltips).
+    renderInto(panCur, anc);
+    panPrev.innerHTML='';
+    panNext.innerHTML='';
+    inner.style.transition='none';
+    inner.style.transform='translateX(-100%)';
+    updateLabel();
+    updateWeekStrip();
   };
 
   inner.addEventListener('transitionend', completeTransition, {once:true});
@@ -1253,8 +1316,10 @@ function buildCompactTimeGrid(container, days, today, exp, sh, eh){
         const cls=ev._cal==='holiday'?'is-holiday':ev._cal==='afspraken'?'is-afspraak':'is-other';
         const[bg,tx,ac]=ev._cal==='holiday'?['#fde8e8','#c0392b','#c0392b']:ev._cal==='afspraken'?['#e8f0fe','#1a56db','#1a56db']:PALETTES[nameHash(ev.title||'')];
         const bl=document.createElement('div');
-        bl.className=`allday-block ${cls}`;bl.style.cssText=`background:${bg};color:${tx};border-left-color:${ac}`;bl.textContent=ev.title||'?';
+        bl.className=`allday-block ${cls}`;bl.style.cssText=`background:${bg};color:${tx};border-left-color:${ac}`;bl.dataset.baseZ='';bl.textContent=ev.title||'?';
         bl.addEventListener('mousemove',e=>showTip(e,ev));bl.addEventListener('mouseleave',hideTip);
+        bl.addEventListener('touchend',e=>activateEventBlock(e,bl,ev),{passive:false});
+        bl.addEventListener('click',e=>activateEventBlock(e,bl,ev));
         row.appendChild(bl);
       });
       container.appendChild(row);
@@ -1286,8 +1351,8 @@ function buildCompactTimeGrid(container, days, today, exp, sh, eh){
 
     // Place main events full-width at low z-index
     mainEvs.forEach(ev=>{
-      const sh2=ev.start.getHours()+ev.start.getMinutes()/60;
-      const eh2=ev.end?(ev.end._ad?eh:ev.end.getHours()+ev.end.getMinutes()/60):sh2+1;
+      const sh2=timeHour(ev.start);
+      const eh2=eventEndHour(ev,eh);
       const top=(Math.max(sh2,sh)-sh)*CHH;
       const height=Math.max((Math.min(eh2,eh)-sh)*CHH-top,14);
       const dv=document.createElement('div');
@@ -1304,14 +1369,21 @@ function buildCompactTimeGrid(container, days, today, exp, sh, eh){
     // Place crew/afspraken events — column-assigned, no overflow strip
     const assigned=assignColumns(crewEvs,2);
     assigned.forEach(({ev,col,total})=>{
-      const sh2=ev.start.getHours()+ev.start.getMinutes()/60;
-      const eh2=ev.end?(ev.end._ad?eh:ev.end.getHours()+ev.end.getMinutes()/60):sh2+1;
+      const sh2=timeHour(ev.start);
+      const eh2=eventEndHour(ev,eh);
       const top=(Math.max(sh2,sh)-sh)*CHH;
-      const height=Math.max((Math.min(eh2,eh)-sh)*CHH-top,14);
+      const minHeight=ev._cal==='afspraken'?22:14;
+      const height=Math.max((Math.min(eh2,eh)-sh)*CHH-top,minHeight);
 
       let leftPct,rightPct;
       if(ev._cal==='afspraken'){leftPct=0;rightPct=0;}
+      else if(ev._cal==='main'){leftPct=0;rightPct=0;}
       else{
+        const afspraakSlot=rightFloatShiftSlot(ev,crewEvs);
+        if(afspraakSlot){
+          leftPct=afspraakSlot.left;
+          rightPct=afspraakSlot.right;
+        } else {
         const hasMO=!mainHidden&&mainEvs.some(me=>{
           const ms=me.start.getTime(),mend=me.end?me.end.getTime():ms+3600000;
           const es=ev.start.getTime(),ee=ev.end?ev.end.getTime():es+3600000;
@@ -1323,6 +1395,7 @@ function buildCompactTimeGrid(container, days, today, exp, sh, eh){
           const gap=total<=2?2:1,cw=(100-gap*(total-1))/total;
           leftPct=col*(cw+gap);rightPct=100-leftPct-cw;
         }
+        }
       }
 
       const dv=document.createElement('div');
@@ -1331,7 +1404,7 @@ function buildCompactTimeGrid(container, days, today, exp, sh, eh){
       applyColor(dv,ev.title||'');
       if(ev._cal==='afspraken'){dv.style.background='#fde8e8';dv.style.color='#7b1111';}
       dv.style.top=`${top}px`;dv.style.height=`${height}px`;dv.style.left=`${leftPct}%`;dv.style.right=`${rightPct}%`;
-      const baseZ=ev._cal==='afspraken'?String(25+col):String(5+col);
+      const baseZ=ev._cal==='afspraken'?'3':String(5+col);
       dv.style.zIndex=baseZ;dv.dataset.baseZ=baseZ;
       dv.style.animationDelay=`${Math.round(Math.pow(animIdx,1.8)*8)}ms`;
       dv.style.animationDuration=`${300+animIdx*30}ms`;
@@ -1340,13 +1413,8 @@ function buildCompactTimeGrid(container, days, today, exp, sh, eh){
       const te=ev.end&&!ev.end._ad?` – ${p2(ev.end.getHours())}:${p2(ev.end.getMinutes())}`:'';
       dv.innerHTML=`<div class="et">${ev.title||'(geen titel)'}</div><div class="es">${ts}${te}</div>`;
       dv.addEventListener('mousemove',e=>showTip(e,ev));dv.addEventListener('mouseleave',hideTip);
-      dv.addEventListener('touchend',e=>{e.preventDefault();const t=e.changedTouches[0];showTip({clientX:t.clientX,clientY:t.clientY},ev);},{passive:false});
-      dv.addEventListener('click',e=>{
-        e.stopPropagation();
-        const isTop=dv.classList.contains('ev-top');
-        document.querySelectorAll('.ev.ev-top').forEach(el=>{el.classList.remove('ev-top');el.style.zIndex=el.dataset.baseZ||'5';});
-        if(!isTop){dv.classList.add('ev-top');dv.style.zIndex='100';}
-      });
+      dv.addEventListener('touchend',e=>activateEventBlock(e,dv,ev),{passive:false});
+      dv.addEventListener('click',e=>activateEventBlock(e,dv,ev));
       gridArea.appendChild(dv);
     });
 
@@ -1507,7 +1575,9 @@ function buildGrid(container, colDefs, today, exp, _cm, _ci, _byDay, sh, eh){
     if(!ev)return;
     el.addEventListener('mousemove',e=>showTip(e,ev));
     el.addEventListener('mouseleave',hideTip);
-    el.addEventListener('touchend',e=>{e.preventDefault();const t=e.changedTouches[0];showTip({clientX:t.clientX,clientY:t.clientY},ev);},{passive:false});
+    el.dataset.baseZ='';
+    el.addEventListener('touchend',e=>activateEventBlock(e,el,ev),{passive:false});
+    el.addEventListener('click',e=>activateEventBlock(e,el,ev));
   });
 
   // Click on day header → toggle day/week view
@@ -1565,10 +1635,12 @@ function buildGrid(container, colDefs, today, exp, _cm, _ci, _byDay, sh, eh){
         overflowByCol[colKey]&&overflowByCol[colKey].push(ev);
         return;
       }
-      const sh2=ev.start.getHours()+ev.start.getMinutes()/60;
-      const eh2=ev.end?(ev.end._ad?eh:ev.end.getHours()+ev.end.getMinutes()/60):sh2+1;
+      const sh2=timeHour(ev.start);
+      const eh2=eventEndHour(ev,eh);
       const bH=Math.max(sh2,sh),cH=Math.floor(bH);
-      const top=(bH-sh)*HH,bot=(Math.min(eh2,eh)-sh)*HH,height=Math.max(bot-top,14);
+      const top=(bH-sh)*HH,bot=(Math.min(eh2,eh)-sh)*HH;
+      const minHeight=ev._cal==='afspraken'?24:14;
+      const height=Math.max(bot-top,minHeight);
       const cell=container.querySelector(`[data-col="${colKey}"][data-h="${cH}"]`);if(!cell)return;
       const dv=document.createElement('div');
       const isDanger=(ev.title||'').includes('**');
@@ -1584,7 +1656,7 @@ function buildGrid(container, colDefs, today, exp, _cm, _ci, _byDay, sh, eh){
       // Width calculation
       let leftPct,rightPct;
       if(ev._cal==='afspraken'){
-        // Appointments always full width, rendered on top
+        // Appointments sit below shifts as a full-width context layer.
         leftPct=0; rightPct=0;
       } else if(mainHidden){
         // Events hidden: clean side-by-side full width
@@ -1596,6 +1668,11 @@ function buildGrid(container, colDefs, today, exp, _cm, _ci, _byDay, sh, eh){
         // Main/background event: always full width
         leftPct=0; rightPct=0;
       } else {
+        const afspraakSlot=rightFloatShiftSlot(ev,evList);
+        if(afspraakSlot){
+          leftPct=afspraakSlot.left;
+          rightPct=afspraakSlot.right;
+        } else {
         // Check if a main event overlaps this shift
         const hasMainOverlap=assigned.some(r2=>{
           if(r2.overflow||r2.ev._cal!=='main')return false;
@@ -1617,11 +1694,12 @@ function buildGrid(container, colDefs, today, exp, _cm, _ci, _byDay, sh, eh){
           leftPct=col*(cellW+gap);
           rightPct=100-leftPct-cellW;
         }
+        }
       }
 
       dv.style.left=`${leftPct}%`;dv.style.right=`${rightPct}%`;
-      // Appointments on top (z=25+), regular shifts below (z=5+), main events at bottom (z=2)
-      const baseZ=ev._cal==='afspraken'?String(25+col):ev._cal==='main'?'2':String(5+col);
+      // Main events at bottom, appointments above them, shifts above appointments.
+      const baseZ=ev._cal==='afspraken'?'3':ev._cal==='main'?'2':String(5+col);
       dv.style.zIndex=baseZ;
       dv.dataset.baseZ=baseZ;
       const _ai=animIdx++;
@@ -1644,20 +1722,8 @@ function buildGrid(container, colDefs, today, exp, _cm, _ci, _byDay, sh, eh){
       }
       dv.addEventListener('mousemove',e=>showTip(e,ev));
       dv.addEventListener('mouseleave',hideTip);
-      dv.addEventListener('touchend',e=>{e.preventDefault();const t=e.changedTouches[0];showTip({clientX:t.clientX,clientY:t.clientY},ev);},{passive:false});
-      dv.addEventListener('click',e=>{
-        e.stopPropagation();
-        const isTop=dv.classList.contains('ev-top');
-        // Reset all elevated events in the whole panel
-        document.querySelectorAll('.ev.ev-top').forEach(el=>{
-          el.classList.remove('ev-top');
-          el.style.zIndex=el.dataset.baseZ||'5';
-        });
-        if(!isTop){
-          dv.classList.add('ev-top');
-          dv.style.zIndex='100';
-        }
-      });
+      dv.addEventListener('touchend',e=>activateEventBlock(e,dv,ev),{passive:false});
+      dv.addEventListener('click',e=>activateEventBlock(e,dv,ev));
       cell.appendChild(dv);
     });
   });
@@ -1761,13 +1827,10 @@ function moveTip(e){
 }
 function hideTip(){tipEl.classList.remove('on')}
 document.addEventListener('mousemove',e=>{if(tipEl.classList.contains('on'))moveTip(e)});
-document.addEventListener('touchstart',e=>{if(!e.target.closest('.ev,.overflow-ev'))hideTip();},{passive:true});
+document.addEventListener('touchstart',e=>{if(!e.target.closest('.ev,.allday-block,.overflow-ev'))hideTip();},{passive:true});
 document.addEventListener('click',e=>{
-  if(!e.target.closest('.ev')){
-    document.querySelectorAll('.ev.ev-top').forEach(el=>{
-      el.classList.remove('ev-top');
-      el.style.zIndex=el.dataset.baseZ||'5';
-    });
+  if(!e.target.closest('.ev,.allday-block')){
+    clearTopBlocks();
   }
 });
 
@@ -2172,20 +2235,35 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
 
       const file=new File([blob],fname,{type:'image/png'});
       const shareUrl=location.href;
-      // 1. Web Share API — native share sheet on mobile, picks WhatsApp etc directly
-      if(navigator.canShare&&navigator.canShare({files:[file]})){
-        await navigator.share({files:[file],title:'Parknest Rooster',text:label+'\n'+shareUrl});
-        return;
-      }
-      // 2. Clipboard write — desktop: pastes as image
-      if(navigator.clipboard&&window.ClipboardItem){
+      const canClipboardImage=!!(navigator.clipboard&&window.ClipboardItem);
+      const preferNativeShare=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||'')&&(navigator.maxTouchPoints||0)>0;
+      // 1. Desktop: copy the bitmap first, avoiding a native share sheet that often reports "canceled".
+      if(canClipboardImage&&!preferNativeShare){
         try{
           await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
           showShareToast('Afbeelding gekopieerd — plak in WhatsApp of een andere app');
           return;
         }catch(_){}
       }
-      // 3. Download fallback
+      // 2. Mobile: native share sheet, picks WhatsApp etc directly.
+      if(navigator.canShare&&navigator.canShare({files:[file]})){
+        try{
+          await navigator.share({files:[file],title:'Parknest Rooster',text:label+'\n'+shareUrl});
+          return;
+        }catch(err){
+          // If the native sheet is canceled or unavailable, continue to clipboard/download.
+          if(err&&err.name!=='AbortError') console.warn('navigator.share failed, falling back',err);
+        }
+      }
+      // 3. Clipboard fallback — also used when mobile share was canceled/unavailable.
+      if(canClipboardImage){
+        try{
+          await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+          showShareToast('Afbeelding gekopieerd — plak in WhatsApp of een andere app');
+          return;
+        }catch(_){}
+      }
+      // 4. Download fallback
       const url=URL.createObjectURL(blob);
       const a=document.createElement('a');
       a.href=url; a.download=fname;
