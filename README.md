@@ -10,7 +10,7 @@ Live at: [parknest.nl/rooster.html](https://parknest.nl/rooster.html) — v1.02
 
 ## Features
 
-- Week and day view with smooth swipe/slide navigation
+- Week, day and hours overview with smooth swipe/slide navigation
 - Crew shifts colour-coded per volunteer
 - Background event layer from Google Calendar (main events / watermarks)
 - Appointments shown in all-day row
@@ -19,8 +19,36 @@ Live at: [parknest.nl/rooster.html](https://parknest.nl/rooster.html) — v1.02
 - URL hash deep-linking: `#week/2026-05-11` or `#day/2026-05-10`
 - Print to A4 landscape or portrait with auto-fit zoom, pastel shift colours
 - Configurable font scale for screen and print
+- Theme selector: Blockery, Softy, Sketchy and Nova
+- Animation selector: Grow, Rise, Fade, Flip X and Flip Y
 - Installable PWA (add to home screen)
 - No database — everything from Google Calendar ICS feeds
+
+
+## Hour Administration
+
+The hamburger menu contains **Urenoverzicht** for payment/hour administration. It summarizes worked volunteer hours for the selected date context:
+
+- **uren deze week** — total hours in the selected week
+- **uren deze maand** — total hours in the selected month
+- **per jaar** — total hours in the selected year, counted only up to today so future scheduled shifts are not included
+
+Contacts with zero hours in both the selected week and selected month are hidden. This avoids showing aliases or inactive crew names in the administration overview.
+
+Clicking a total opens a compact drill-down directly under that volunteer:
+
+- Year opens a month-by-month overview
+- Month opens a week-by-week overview
+- Week opens a day/detail overview
+- Day/detail lists the individual shifts and totals
+
+Name handling for hour counting:
+
+- `Zdeno/Dirk` counts the full shift for both Zdeno and Dirk
+- `dirk1` counts as Dirk
+- `dirk2` remains a separate person if defined that way
+- `Zdeno?` and `` `zdeno`` count as Zdeno
+- Titles containing `afwezig`, `vakantie` or `niet` are ignored for hour totals
 
 ## File Structure
 
@@ -31,6 +59,8 @@ rooster/
   rooster.css            All styles
   rooster-config.js      Configuration (crew, calendars, branding)
   rooster-manifest.json  PWA manifest
+  sketchy.css            Sketchy hand-drawn theme
+  nova.css               Nova dark theme
   proxy.php              Server-side CORS proxy for ICS feeds
   rooster-docs.md        Dutch user documentation
 ```
