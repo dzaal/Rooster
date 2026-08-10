@@ -2014,12 +2014,17 @@ function buildGrid(container, colDefs, today, exp, _cm, _ci, _byDay, sh, eh){
           return as<be&&ae>bs;
         });
         if(hasMainOverlap){
-          // Non-main events use 25%–100%, subdivided among themselves
-          // Main event is at col=0; volunteer cols start at 1
-          const nonMainTotal=total-1;
-          const nonMainCol=col-1;
-          if(nonMainTotal<=0){leftPct=25;rightPct=0;}
-          else{const cw=75/nonMainTotal;leftPct=25+nonMainCol*cw;rightPct=(nonMainTotal-nonMainCol-1)*cw;}
+          const shiftGroup=assigned
+            .filter(r2=>!r2.overflow&&isShiftEvent(r2.ev)&&timedOverlap(ev,r2.ev))
+            .sort((a,b)=>a.col-b.col||a.ev.start-b.ev.start||(a.ev.title||'').localeCompare(b.ev.title||''));
+          const shiftIdx=Math.max(0,shiftGroup.findIndex(r2=>r2.ev===ev));
+          const shiftTotal=Math.max(1,shiftGroup.length);
+          const mainReserve=vm==='day'?22:25;
+          const usable=100-mainReserve;
+          const gap=shiftTotal<=2?2:1;
+          const cellW=(usable-gap*(shiftTotal-1))/shiftTotal;
+          leftPct=mainReserve+shiftIdx*(cellW+gap);
+          rightPct=100-leftPct-cellW;
         } else {
           // No main event overlap: clean side-by-side
           const gap=total<=2?2:1;
