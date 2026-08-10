@@ -1178,12 +1178,12 @@ function renderHoursView(container, anchorDate){
   const rows=hoursDataFor(anchorDate);
   const periodLabels={week:'uren deze week',month:'uren deze maand',year:'per jaar'};
   container.innerHTML=`<div class="hours-report"><div class="hours-summary">
-    ${rows.length?rows.map(c=>{
+    ${rows.length?rows.map((c,idx)=>{
       const color=c.color||crewColor(c.name);
       const totalButtons=['week','month','year'].map(period=>`<button class="hours-total" type="button" data-hours-crew="${esc(c.name)}" data-hours-period="${period}">
         <b>${fmtHours(c.totals[period])}</b><span>${periodLabels[period]}</span>
       </button>`).join('');
-      return `<section class="hours-person"><div class="hours-person-head"><span class="hours-swatch" style="background:${color}"></span><span class="hours-name">${esc(c.name)}</span></div><div class="hours-totals">${totalButtons}</div><div class="hours-inline-detail hours-detail"></div></section>`;
+      return `<section class="hours-person" style="animation-delay:${Math.min(idx*45,360)}ms"><div class="hours-person-head"><span class="hours-swatch" style="background:${color}"></span><span class="hours-name">${esc(c.name)}</span></div><div class="hours-totals">${totalButtons}</div><div class="hours-inline-detail hours-detail"></div></section>`;
     }).join(''):`<div class="hours-empty">Geen uren gevonden in ${esc(hoursPeriodLabel('year',anchorDate))}.</div>`}
     </div></div>`;
   container.querySelectorAll('[data-hours-crew]').forEach(btn=>{
