@@ -1127,7 +1127,7 @@ function hoursDataFor(anchorDate){
     });
     const plannedFromToday=entriesByPeriod.week.some(e=>e.crew.toLowerCase()===c.name.toLowerCase()&&e.end>todayStart);
     return {...c,totals,plannedFromToday};
-  }).filter(c=>c.totals.week>0||c.totals.month>0);
+  }).filter(c=>c.totals.week>0);
 }
 function hourBreakdownItems(period, anchorDate){
   if(period==='year'){
@@ -1196,7 +1196,7 @@ function renderHoursView(container, anchorDate, deferAnimation=false){
         <b>${fmtHours(c.totals[period])}</b><span>${periodLabels[period]}</span>
       </button>`).join('');
       return `<section class="hours-person${c.plannedFromToday?' hours-person-planned':''}" style="animation-delay:${idx*5}ms"><div class="hours-person-head"><span class="hours-swatch" style="background:${color}"></span><span class="hours-name">${esc(c.name)}</span></div><div class="hours-totals">${totalButtons}</div><div class="hours-inline-detail hours-detail"></div></section>`;
-    }).join(''):`<div class="hours-empty">Geen uren gevonden in ${esc(hoursPeriodLabel('year',anchorDate))}.</div>`}
+    }).join(''):`<div class="hours-empty">Geen uren gevonden in ${esc(hoursPeriodLabel('week',anchorDate))}.</div>`}
     </div></div>`;
   container.querySelectorAll('[data-hours-week-nav]').forEach(btn=>{
     btn.addEventListener('click',()=>{
