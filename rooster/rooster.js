@@ -1045,6 +1045,10 @@ function rangeForHours(period, anchorDate){
 function fmtDate(d){return `${DL[d.getDay()]} ${d.getDate()} ${MN[d.getMonth()]} ${d.getFullYear()}`}
 function fmtTime(d){return `${p2(d.getHours())}:${p2(d.getMinutes())}`}
 function fmtHours(h){return (Math.round(h*100)/100).toLocaleString(_locale,{minimumFractionDigits:h%1?1:0,maximumFractionDigits:2})}
+function hoursContextLabel(anchorDate){
+  const month=new Intl.DateTimeFormat(_locale,{month:'long',year:'numeric'}).format(anchorDate);
+  return `${month} · week ${getWeekNumber(sowk(anchorDate))}`;
+}
 function hoursPeriodLabel(period, anchorDate){
   const {start,end}=rangeForHours(period,anchorDate);
   if(period==='week'){
@@ -1177,7 +1181,7 @@ function renderHoursBreakdown(detail, crew, period, anchorDate){
 function renderHoursView(container, anchorDate, deferAnimation=false){
   const rows=hoursDataFor(anchorDate);
   const periodLabels={week:'uren deze week',month:'uren deze maand',year:'per jaar'};
-  container.innerHTML=`<div class="hours-report${deferAnimation?' hours-anim-pending':''}"><div class="hours-summary">
+  container.innerHTML=`<div class="hours-report${deferAnimation?' hours-anim-pending':''}"><div class="hours-context">${esc(hoursContextLabel(anchorDate))}</div><div class="hours-summary">
     ${rows.length?rows.map((c,idx)=>{
       const color=c.color||crewColor(c.name);
       const totalButtons=['week','month','year'].map(period=>`<button class="hours-total" type="button" data-hours-crew="${esc(c.name)}" data-hours-period="${period}">
