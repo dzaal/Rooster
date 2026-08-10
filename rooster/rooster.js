@@ -1081,8 +1081,9 @@ function crewNamesForEvent(ev){
   return names;
 }
 function expandedShiftEntries(rangeStart, rangeEnd){
-  const now=new Date();
-  const effectiveEnd=new Date(Math.min(rangeEnd.getTime(),now.getTime()));
+  const todayEnd=new Date();
+  todayEnd.setHours(24,0,0,0);
+  const effectiveEnd=new Date(Math.min(rangeEnd.getTime(),todayEnd.getTime()));
   if(effectiveEnd<=rangeStart)return [];
   const expanded=[];
   const inclusiveEnd=new Date(effectiveEnd.getTime()-1);
