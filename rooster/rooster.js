@@ -1174,10 +1174,10 @@ function renderHoursBreakdown(detail, crew, period, anchorDate){
   });
   detail.scrollIntoView({block:'nearest',behavior:'smooth'});
 }
-function renderHoursView(container, anchorDate){
+function renderHoursView(container, anchorDate, deferAnimation=false){
   const rows=hoursDataFor(anchorDate);
   const periodLabels={week:'uren deze week',month:'uren deze maand',year:'per jaar'};
-  container.innerHTML=`<div class="hours-report"><div class="hours-summary">
+  container.innerHTML=`<div class="hours-report${deferAnimation?' hours-anim-pending':''}"><div class="hours-summary">
     ${rows.length?rows.map((c,idx)=>{
       const color=c.color||crewColor(c.name);
       const totalButtons=['week','month','year'].map(period=>`<button class="hours-total" type="button" data-hours-crew="${esc(c.name)}" data-hours-period="${period}">
@@ -1197,10 +1197,19 @@ function renderHoursView(container, anchorDate){
   });
 }
 
-function renderInto(container, anchorDate){
+function startHoursAnimation(container){
+  const report=container?.querySelector('.hours-anim-pending');
+  if(!report)return;
+  report.offsetHeight;
+  requestAnimationFrame(()=>{
+    report.classList.remove('hours-anim-pending');
+  });
+}
+
+function renderInto(container, anchorDate, options={}){
   if(vm==='hours'){
     updateDayViewMetrics(0);
-    renderHoursView(container, anchorDate);
+    renderHoursView(container, anchorDate, !!options.deferHoursAnimation);
     return;
   }
   const colDefs=getColDefs(anchorDate);
@@ -1292,7 +1301,8 @@ function render(dir=0){
 
   if(dir===0 || !inner){
     // Initial load — no animation
-    renderInto(panCur, anc);
+    renderInto(panCur, anc, {deferHoursAnimation:vm==='hours'});
+    startHoursAnimation(panCur);
     inner.style.transition='none';
     inner.style.transform='translateX(-100%)';
     updateLabel();
@@ -1301,14 +1311,14 @@ function render(dir=0){
 
   // Pre-render adjacent panel
   if(dir>0){
-    renderInto(panNext, anc);
+    renderInto(panNext, anc, {deferHoursAnimation:vm==='hours'});
     inner.style.transition='none';
     inner.style.transform='translateX(-100%)'; // show current
     panNext.offsetHeight; // force reflow
     inner.style.transition='transform .28s cubic-bezier(.4,0,.2,1)';
     inner.style.transform='translateX(-200%)'; // slide to next
   } else {
-    renderInto(panPrev, anc);
+    renderInto(panPrev, anc, {deferHoursAnimation:vm==='hours'});
     inner.style.transition='none';
     inner.style.transform='translateX(-100%)';
     panPrev.offsetHeight;
@@ -1325,13 +1335,14 @@ function render(dir=0){
 
     // Re-render the center panel after the slide so copied markup does not lose
     // its event listeners (day-label zoom, event selection, tooltips).
-    renderInto(panCur, anc);
+    renderInto(panCur, anc, {deferHoursAnimation:vm==='hours'});
     panPrev.innerHTML='';
     panNext.innerHTML='';
     inner.style.transition='none';
     inner.style.transform='translateX(-100%)';
     updateLabel();
     updateWeekStrip();
+    startHoursAnimation(panCur);
   };
 
   inner.addEventListener('transitionend', completeTransition, {once:true});
