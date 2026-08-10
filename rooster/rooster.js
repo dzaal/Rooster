@@ -1116,7 +1116,7 @@ function hoursDataFor(anchorDate){
         .reduce((sum,e)=>sum+e.hours,0);
     });
     return {...c,totals};
-  }).filter(c=>c.totals.year>0||c.totals.month>0||c.totals.week>0);
+  }).filter(c=>c.totals.week>0||c.totals.month>0);
 }
 function hourBreakdownItems(period, anchorDate){
   if(period==='year'){
@@ -1176,7 +1176,7 @@ function renderHoursBreakdown(detail, crew, period, anchorDate){
 }
 function renderHoursView(container, anchorDate){
   const rows=hoursDataFor(anchorDate);
-  const periodLabels={week:'per week',month:'per maand',year:'per jaar'};
+  const periodLabels={week:'uren deze week',month:'uren deze maand',year:'per jaar'};
   container.innerHTML=`<div class="hours-report"><div class="hours-summary">
     ${rows.length?rows.map(c=>{
       const color=c.color||crewColor(c.name);
