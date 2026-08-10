@@ -1045,6 +1045,12 @@ function rangeForHours(period, anchorDate){
 function fmtDate(d){return `${DL[d.getDay()]} ${d.getDate()} ${MN[d.getMonth()]} ${d.getFullYear()}`}
 function fmtTime(d){return `${p2(d.getHours())}:${p2(d.getMinutes())}`}
 function fmtHours(h){return (Math.round(h*100)/100).toLocaleString(_locale,{minimumFractionDigits:h%1?1:0,maximumFractionDigits:2})}
+function hoursWeekDateLabel(anchorDate){
+  const start=sowk(anchorDate), end=addD(start,6);
+  const sameMonth=start.getMonth()===end.getMonth()&&start.getFullYear()===end.getFullYear();
+  const startLabel=sameMonth?String(start.getDate()):`${start.getDate()} ${MN[start.getMonth()]}`;
+  return `${startLabel}-${end.getDate()} ${MN[end.getMonth()]} ${end.getFullYear()}`;
+}
 function hoursContextLabel(anchorDate){
   const month=new Intl.DateTimeFormat(_locale,{month:'long',year:'numeric'}).format(anchorDate);
   return `${month} · week ${getWeekNumber(sowk(anchorDate))}`;
@@ -1183,7 +1189,7 @@ function renderHoursBreakdown(detail, crew, period, anchorDate){
 function renderHoursView(container, anchorDate, deferAnimation=false){
   const rows=hoursDataFor(anchorDate);
   const periodLabels={week:'uren deze week',month:'uren deze maand',year:'per jaar'};
-  container.innerHTML=`<div class="hours-report${deferAnimation?' hours-anim-pending':''}"><div class="hours-context"><span class="hours-context-label">${esc(new Intl.DateTimeFormat(_locale,{month:'long',year:'numeric'}).format(anchorDate))}</span><span class="hours-week-nav"><button class="hours-week-arrow" type="button" data-hours-week-nav="-1" title="Vorige week">‹</button><span class="hours-week-label">week ${getWeekNumber(sowk(anchorDate))}</span><button class="hours-week-arrow" type="button" data-hours-week-nav="1" title="Volgende week">›</button></span></div><div class="hours-summary">
+  container.innerHTML=`<div class="hours-report${deferAnimation?' hours-anim-pending':''}"><div class="hours-context"><span class="hours-context-label">${esc(new Intl.DateTimeFormat(_locale,{month:'long',year:'numeric'}).format(anchorDate))}</span><span class="hours-week-nav"><button class="hours-week-arrow" type="button" data-hours-week-nav="-1" title="Vorige week">‹</button><span class="hours-week-label">week ${getWeekNumber(sowk(anchorDate))}</span><button class="hours-week-arrow" type="button" data-hours-week-nav="1" title="Volgende week">›</button></span><span class="hours-date-range">${esc(hoursWeekDateLabel(anchorDate))}</span></div><div class="hours-summary">
     ${rows.length?rows.map((c,idx)=>{
       const color=c.color||crewColor(c.name);
       const totalButtons=['week','month','year'].map(period=>`<button class="hours-total" type="button" data-hours-crew="${esc(c.name)}" data-hours-period="${period}">
