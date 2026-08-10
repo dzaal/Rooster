@@ -1080,10 +1080,8 @@ function crewNamesForEvent(ev){
   });
   return names;
 }
-function expandedShiftEntries(rangeStart, rangeEnd){
-  const todayEnd=new Date();
-  todayEnd.setHours(24,0,0,0);
-  const effectiveEnd=new Date(Math.min(rangeEnd.getTime(),todayEnd.getTime()));
+function expandedShiftEntries(rangeStart, rangeEnd, options={}){
+  const effectiveEnd=new Date(rangeEnd);
   if(effectiveEnd<=rangeStart)return [];
   const expanded=[];
   const inclusiveEnd=new Date(effectiveEnd.getTime()-1);
@@ -1101,12 +1099,13 @@ function expandedShiftEntries(rangeStart, rangeEnd){
     })
     .sort((a,b)=>a.start-b.start||a.crew.localeCompare(b.crew));
 }
-function totalHoursForCrew(crew, start, end){
-  return expandedShiftEntries(start,end)
+function totalHoursForCrew(crew, start, end, options={}){
+  return expandedShiftEntries(start,end,options)
     .filter(e=>e.crew.toLowerCase()===crew.toLowerCase())
     .reduce((sum,e)=>sum+e.hours,0);
 }
 function hoursDataFor(anchorDate){
+  const todayStart=new Date();todayStart.setHours(0,0,0,0);
   const periods=['week','month','year'];
   const entriesByPeriod={};
   periods.forEach(period=>{
@@ -1120,7 +1119,8 @@ function hoursDataFor(anchorDate){
         .filter(e=>e.crew.toLowerCase()===c.name.toLowerCase())
         .reduce((sum,e)=>sum+e.hours,0);
     });
-    return {...c,totals};
+    const plannedFromToday=entriesByPeriod.week.some(e=>e.crew.toLowerCase()===c.name.toLowerCase()&&e.end>todayStart);
+    return {...c,totals,plannedFromToday};
   }).filter(c=>c.totals.week>0||c.totals.month>0);
 }
 function hourBreakdownItems(period, anchorDate){
@@ -1148,12 +1148,12 @@ function hourBreakdownItems(period, anchorDate){
     return {label:fmtDate(start),start,end,next:'day'};
   });
 }
-function renderHoursShiftList(detail, crew, start, end, label){
-  const rows=expandedShiftEntries(start,end).filter(e=>e.crew.toLowerCase()===crew.toLowerCase());
+function renderHoursShiftList(detail, crew, start, end, label, options={}){
+  const rows=expandedShiftEntries(start,end,options).filter(e=>e.crew.toLowerCase()===crew.toLowerCase());
   const total=rows.reduce((sum,e)=>sum+e.hours,0);
   if(!detail)return;
   const body=rows.length
-    ? rows.map(e=>`<tr><td>${esc(fmtDate(e.start))}</td><td>${fmtTime(e.start)}-${fmtTime(e.end)}</td><td>${esc(e.title)}</td><td>${fmtHours(e.hours)}</td></tr>`).join('')
+    ? rows.map(e=>{const todayStart=new Date();todayStart.setHours(0,0,0,0);return `<tr class="${e.end>todayStart?'hours-planned-row':''}"><td>${esc(fmtDate(e.start))}</td><td>${fmtTime(e.start)}-${fmtTime(e.end)}</td><td>${esc(e.title)}</td><td>${fmtHours(e.hours)}</td></tr>`}).join('')
     : `<tr><td colspan="4" class="hours-empty">Geen diensten in deze periode.</td></tr>`;
   detail.innerHTML=`<div class="hours-detail-head"><h3>${esc(crew)} - ${esc(label)}</h3><button class="hours-close" type="button" title="Sluit">×</button></div>
     <table class="hours-table"><thead><tr><th>Datum</th><th>Tijd</th><th>Dienst</th><th>Uren</th></tr></thead><tbody>${body}</tbody><tfoot><tr><td colspan="3">Totaal</td><td>${fmtHours(total)}</td></tr></tfoot></table>`;
@@ -1162,12 +1162,13 @@ function renderHoursShiftList(detail, crew, start, end, label){
 }
 function renderHoursBreakdown(detail, crew, period, anchorDate){
   if(!detail)return;
-  const items=hourBreakdownItems(period, anchorDate).map(item=>({...item,hours:totalHoursForCrew(crew,item.start,item.end)}));
+  const todayStart=new Date();todayStart.setHours(0,0,0,0);
+  const items=hourBreakdownItems(period, anchorDate).map(item=>({...item,hours:totalHoursForCrew(crew,item.start,item.end),plannedFromToday:item.end>todayStart}));
   const total=items.reduce((sum,item)=>sum+item.hours,0);
   const title=period==='year'?'Maanden':period==='month'?'Weken':'Dagen';
   detail.innerHTML=`<div class="hours-detail-head"><h3>${esc(crew)} - ${title} - ${esc(hoursPeriodLabel(period,anchorDate))}</h3><button class="hours-close" type="button" title="Sluit">×</button></div>
     <table class="hours-table"><thead><tr><th>Periode</th><th>Uren</th></tr></thead><tbody>
-    ${items.map((item,idx)=>`<tr class="${item.hours?'':'hours-zero'}"><td><button class="hours-period" type="button" data-hours-break="${idx}"><span>${esc(item.label)}</span><span>${item.next==='day'?'Details':'Open'}</span></button></td><td>${fmtHours(item.hours)}</td></tr>`).join('')}
+    ${items.map((item,idx)=>`<tr class="${item.hours?'':'hours-zero'}${item.hours&&item.plannedFromToday?' hours-planned-row':''}"><td><button class="hours-period" type="button" data-hours-break="${idx}"><span>${esc(item.label)}</span><span>${item.next==='day'?'Details':'Open'}</span></button></td><td>${fmtHours(item.hours)}</td></tr>`).join('')}
     </tbody><tfoot><tr><td>Totaal</td><td>${fmtHours(total)}</td></tr></tfoot></table>`;
   detail.querySelector('.hours-close')?.addEventListener('click',()=>{detail.innerHTML='';});
   detail.querySelectorAll('[data-hours-break]').forEach(btn=>{
@@ -1188,7 +1189,7 @@ function renderHoursView(container, anchorDate, deferAnimation=false){
       const totalButtons=['week','month','year'].map(period=>`<button class="hours-total" type="button" data-hours-crew="${esc(c.name)}" data-hours-period="${period}">
         <b>${fmtHours(c.totals[period])}</b><span>${periodLabels[period]}</span>
       </button>`).join('');
-      return `<section class="hours-person" style="animation-delay:${idx*5}ms"><div class="hours-person-head"><span class="hours-swatch" style="background:${color}"></span><span class="hours-name">${esc(c.name)}</span></div><div class="hours-totals">${totalButtons}</div><div class="hours-inline-detail hours-detail"></div></section>`;
+      return `<section class="hours-person${c.plannedFromToday?' hours-person-planned':''}" style="animation-delay:${idx*5}ms"><div class="hours-person-head"><span class="hours-swatch" style="background:${color}"></span><span class="hours-name">${esc(c.name)}</span></div><div class="hours-totals">${totalButtons}</div><div class="hours-inline-detail hours-detail"></div></section>`;
     }).join(''):`<div class="hours-empty">Geen uren gevonden in ${esc(hoursPeriodLabel('year',anchorDate))}.</div>`}
     </div></div>`;
   container.querySelectorAll('[data-hours-week-nav]').forEach(btn=>{
