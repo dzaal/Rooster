@@ -1183,7 +1183,7 @@ function renderHoursView(container, anchorDate){
       const totalButtons=['week','month','year'].map(period=>`<button class="hours-total" type="button" data-hours-crew="${esc(c.name)}" data-hours-period="${period}">
         <b>${fmtHours(c.totals[period])}</b><span>${periodLabels[period]}</span>
       </button>`).join('');
-      return `<section class="hours-person" style="animation-delay:${Math.min(idx*45,360)}ms"><div class="hours-person-head"><span class="hours-swatch" style="background:${color}"></span><span class="hours-name">${esc(c.name)}</span></div><div class="hours-totals">${totalButtons}</div><div class="hours-inline-detail hours-detail"></div></section>`;
+      return `<section class="hours-person" style="animation-delay:${Math.min(idx*50,400)}ms"><div class="hours-person-head"><span class="hours-swatch" style="background:${color}"></span><span class="hours-name">${esc(c.name)}</span></div><div class="hours-totals">${totalButtons}</div><div class="hours-inline-detail hours-detail"></div></section>`;
     }).join(''):`<div class="hours-empty">Geen uren gevonden in ${esc(hoursPeriodLabel('year',anchorDate))}.</div>`}
     </div></div>`;
   container.querySelectorAll('[data-hours-crew]').forEach(btn=>{
