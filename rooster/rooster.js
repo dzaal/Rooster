@@ -2796,14 +2796,17 @@ window._setRefreshInterval=function(min){
 window._setRefreshInterval(window._roosterRefreshMin!==undefined?window._roosterRefreshMin:15);
 
 // ── EVENT ANIMATION STYLE SWITCHER ───────────────────────
-// Tap the period label (#pl) to cycle: Grow → Rise → Fade → Grow…
+// Tap the period label (#pl) to cycle: Grow → Rise → Fade → Flip X → Flip Y → Grow…
 (()=>{
   const STYLES=[
     {key:'grow', anim:'evInGrow', dur:'.44s', ease:'cubic-bezier(0.34,1.56,0.64,1)', label:'Grow ✦'},
     {key:'rise', anim:'evInRise', dur:'.38s', ease:'cubic-bezier(0.22,1,0.36,1)',    label:'Rise ↑'},
     {key:'fade', anim:'evInFade', dur:'.30s', ease:'cubic-bezier(0.4,0,0.2,1)',      label:'Fade ◌'},
+    {key:'flipx', anim:'evInFlipX', dur:'.85s', ease:'cubic-bezier(0.2,0.8,0.2,1)',   label:'Flip X'},
+    {key:'flipy', anim:'evInFlipY', dur:'2.6s',  ease:'linear',                        label:'Flip Y'},
   ];
   let cur = +(localStorage.getItem('evAnimIdx')||0);
+  if(!STYLES[cur]) cur=0;
   function apply(){
     const s=STYLES[cur];
     const r=document.documentElement.style;
@@ -2812,7 +2815,7 @@ window._setRefreshInterval(window._roosterRefreshMin!==undefined?window._rooster
     r.setProperty('--ev-ease',s.ease);
   }
   window._getEventAnimationStyle=()=>cur;
-  window._setEventAnimationStyle=idx=>{cur=Math.max(0,Math.min(STYLES.length-1,+idx||0));localStorage.setItem('evAnimIdx',cur);apply();render(0);};
+  window._setEventAnimationStyle=idx=>{cur=+idx;if(!STYLES[cur])cur=0;localStorage.setItem('evAnimIdx',cur);apply();render(0);};
   apply();
   const pl=document.getElementById('pl');
   pl.style.cursor='pointer';

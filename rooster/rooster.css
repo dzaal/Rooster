@@ -134,14 +134,20 @@ body.view-day .ce.sharp{border-top-width:2px}
 @media(min-width:321px){.ch .dn-short{display:none}.ch .dn-full{display:inline}}
 /* overflow strip: compact list below grid for truly overlapping shifts */
 .overflow-strip{background:#f8f8f6;border-top:2px solid #b0b8a8;padding:3px 4px;display:flex;flex-direction:column;gap:2px}
-.overflow-ev{display:flex;align-items:baseline;padding:3px 6px 3px 8px;border-radius:6px;font-size:.72rem;line-height:1.35;border-left:4px solid transparent;animation:evIn .3s ease forwards;opacity:0;font-family:'DM Sans',sans-serif}
+.overflow-ev{display:flex;align-items:baseline;padding:3px 6px 3px 8px;border-radius:6px;font-size:.72rem;line-height:1.35;border-left:4px solid transparent;animation:var(--ev-anim,evInGrow) var(--ev-dur,.44s) var(--ev-ease,cubic-bezier(.34,1.56,.64,1)) forwards;opacity:0;font-family:'DM Sans',sans-serif;transform-style:preserve-3d;backface-visibility:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1)}
 .overflow-ev .oe-name{font-weight:700;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
 .overflow-ev .oe-time{font-size:.65rem;opacity:.85;flex-shrink:0;white-space:nowrap;margin-left:5px}
 /* events 20% transparent so grid lines show through */
-.ev{position:absolute;left:2px;right:2px;border-radius:6px;padding:3px 6px 3px 8px;font-size:.72rem;line-height:1.35;overflow:hidden;cursor:default;z-index:5;box-shadow:0 1px 3px rgba(0,0,0,.12);transition:box-shadow .14s,transform .14s;opacity:0;animation:evIn .3s ease forwards;border-left-width:4px!important;border-left-style:solid!important;box-sizing:border-box}
+.ev{position:absolute;left:2px;right:2px;border-radius:6px;padding:3px 6px 3px 8px;font-size:.72rem;line-height:1.35;overflow:hidden;cursor:default;z-index:5;box-shadow:0 1px 4px rgba(0,0,0,.1);transition:left .25s ease,right .25s ease,box-shadow .14s,transform .14s;opacity:0;animation:var(--ev-anim,evInGrow) var(--ev-dur,.44s) var(--ev-ease,cubic-bezier(.34,1.56,.64,1)) forwards;border-left-width:4px!important;border-left-style:solid!important;box-sizing:border-box;transform-style:preserve-3d;backface-visibility:hidden}
 .ev .shift-delete{position:absolute;top:2px;right:2px;border:none;background:rgba(255,255,255,.9);color:#900;font-weight:700;border-radius:4px;width:18px;height:18px;line-height:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:0.8rem;}
 .ev .shift-delete:hover{background:#fff;color:#b00;}
-@keyframes evIn{from{opacity:0;transform:translateY(3px)}to{opacity:.9;transform:translateY(0)}}
+@keyframes evInGrow{0%{opacity:0;transform:scale(.9) translateY(7px);filter:blur(.5px)}65%{opacity:.88;transform:scale(1.025) translateY(-1.5px);filter:blur(0)}100%{opacity:.9;transform:scale(1) translateY(0);filter:blur(0)}}
+@keyframes evInRise{0%{opacity:.4;transform:translateY(12px)}100%{opacity:.9;transform:translateY(0)}}
+@keyframes evInFade{0%{opacity:0}100%{opacity:.9}}
+@keyframes evInFlipX{0%{opacity:.45;transform:perspective(520px) rotateY(-92deg) scale(.98)}20%{opacity:.82}55%{opacity:.88;transform:perspective(520px) rotateY(12deg) scale(1)}100%{opacity:.9;transform:perspective(520px) rotateY(0) scale(1)}}
+@keyframes evInFlipY{0%{opacity:1;transform:perspective(120px) rotateX(90deg) scale(.98)}25%{opacity:1;transform:perspective(120px) rotateX(-22deg) scale(1.01)}40%{transform:perspective(120px) rotateX(14deg) scale(1)}55%{transform:perspective(120px) rotateX(-10deg)}67%{transform:perspective(120px) rotateX(7deg)}77%{transform:perspective(120px) rotateX(-4deg)}86%{transform:perspective(120px) rotateX(2.5deg)}93%{transform:perspective(120px) rotateX(-1deg)}100%{opacity:1;transform:perspective(120px) rotateX(0) scale(1)}}
+@keyframes evInOpacity{0%{opacity:0}100%{opacity:.92}}
+@keyframes evIn{0%{opacity:0;transform:scale(.9) translateY(7px);filter:blur(.5px)}65%{opacity:.88;transform:scale(1.025) translateY(-1.5px);filter:blur(0)}100%{opacity:.9;transform:scale(1) translateY(0);filter:blur(0)}}
 .ev:hover{box-shadow:0 2px 8px rgba(0,0,0,.18);transform:translateY(-1px);z-index:20;opacity:.95!important}
 .ev.ev-top,.allday-block.ev-top{opacity:1!important;box-shadow:0 4px 18px rgba(0,0,0,.28)!important;transform:translateY(-1px);z-index:100!important;outline:2px solid rgba(0,0,0,.18);outline-offset:1px}
 .ev .et{font-weight:600;font-size:.75rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -220,7 +226,7 @@ body.view-hours.hours-picker-open #calOuter{padding-top:var(--datepicker-h,0px);
 .compact-day-col{padding:5px 4px}
 .compact-day-col:not(:last-child){border-bottom:2px solid #e0eef8}
 .compact-day-col.empty{background:#fafaf8}
-.compact-ev{border-radius:6px;padding:3px 6px 3px 8px;margin-bottom:3px;font-size:.72rem;line-height:1.35;border-left:4px solid transparent;animation:evIn .3s ease forwards;opacity:0}
+.compact-ev{border-radius:6px;padding:3px 6px 3px 8px;margin-bottom:3px;font-size:.72rem;line-height:1.35;border-left:4px solid transparent;animation:var(--ev-anim,evInGrow) var(--ev-dur,.44s) var(--ev-ease,cubic-bezier(.34,1.56,.64,1)) forwards;opacity:0;transform-style:preserve-3d;backface-visibility:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1)}
 .compact-ev .et{font-weight:700;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .compact-ev .es{font-size:.62rem;opacity:.85;display:block}
 .compact-empty{color:#b0a898;font-size:.68rem;padding:6px 4px;text-align:center}
