@@ -1181,7 +1181,7 @@ function renderHoursBreakdown(detail, crew, period, anchorDate){
 function renderHoursView(container, anchorDate, deferAnimation=false){
   const rows=hoursDataFor(anchorDate);
   const periodLabels={week:'uren deze week',month:'uren deze maand',year:'per jaar'};
-  container.innerHTML=`<div class="hours-report${deferAnimation?' hours-anim-pending':''}"><div class="hours-context">${esc(hoursContextLabel(anchorDate))}</div><div class="hours-summary">
+  container.innerHTML=`<div class="hours-report${deferAnimation?' hours-anim-pending':''}"><div class="hours-context"><span class="hours-context-label">${esc(new Intl.DateTimeFormat(_locale,{month:'long',year:'numeric'}).format(anchorDate))}</span><span class="hours-week-nav"><button class="hours-week-arrow" type="button" data-hours-week-nav="-1" title="Vorige week">‹</button><span class="hours-week-label">week ${getWeekNumber(sowk(anchorDate))}</span><button class="hours-week-arrow" type="button" data-hours-week-nav="1" title="Volgende week">›</button></span></div><div class="hours-summary">
     ${rows.length?rows.map((c,idx)=>{
       const color=c.color||crewColor(c.name);
       const totalButtons=['week','month','year'].map(period=>`<button class="hours-total" type="button" data-hours-crew="${esc(c.name)}" data-hours-period="${period}">
@@ -1190,6 +1190,13 @@ function renderHoursView(container, anchorDate, deferAnimation=false){
       return `<section class="hours-person" style="animation-delay:${idx*5}ms"><div class="hours-person-head"><span class="hours-swatch" style="background:${color}"></span><span class="hours-name">${esc(c.name)}</span></div><div class="hours-totals">${totalButtons}</div><div class="hours-inline-detail hours-detail"></div></section>`;
     }).join(''):`<div class="hours-empty">Geen uren gevonden in ${esc(hoursPeriodLabel('year',anchorDate))}.</div>`}
     </div></div>`;
+  container.querySelectorAll('[data-hours-week-nav]').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      hoursFocusPeriod='week';
+      anc=addD(sowk(anc), +btn.dataset.hoursWeekNav*7);
+      render(0);
+    });
+  });
   container.querySelectorAll('[data-hours-crew]').forEach(btn=>{
     btn.addEventListener('click',()=>{
       hoursFocusPeriod=btn.dataset.hoursPeriod||'month';
