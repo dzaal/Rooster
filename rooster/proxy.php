@@ -33,8 +33,9 @@ if (!$allowed) {
 $cache_dir  = sys_get_temp_dir();
 $cache_file = $cache_dir . '/parknest_ics_' . md5($requested_url) . '.txt';
 $cache_time = 900; // 15 minuten
+$force_refresh = isset($_GET['refresh']) && $_GET['refresh'] === '1';
 
-if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time) {
+if (!$force_refresh && file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time) {
     $data = file_get_contents($cache_file);
 } else {
     $ctx = stream_context_create(['http' => [
@@ -54,5 +55,9 @@ if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time)
 
 header('Content-Type: text/calendar; charset=UTF-8');
 header('Access-Control-Allow-Origin: *');
-header('Cache-Control: max-age=900, public');
+// Keep the 15 minute cache inside this proxy only. Browser/intermediate caches
+// would otherwise hide manual refreshes and add a second cache layer.
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
 echo $data;

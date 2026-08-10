@@ -14,35 +14,33 @@
 <link rel="apple-touch-icon" href="https://parknest.nl/wp-content/uploads/2024/09/Parknest-logo-transp-shadow.png" id="appleIcon">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="rooster/rooster.css?v=7">
+<link rel="stylesheet" href="rooster/rooster.css?v=16">
+<link rel="stylesheet" href="rooster/sketchy.css?v=1">
 </head>
 <body>
 <header>
-  <div class="logo">
-    <img id="logoImg" src="https://parknest.nl/wp-content/uploads/2024/09/Parknest-logo-transp-shadow.png" alt="Parknest" style="width:38px;height:38px;object-fit:contain;border-radius:8px;">
-  </div>
-  <button class="nb" id="pB" title="Vorige (←)">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+  <button class="nb hdr-ham" id="menuBtn" title="Menu">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
   </button>
+  <div class="hdr-brand">
+    <div class="logo">
+      <img id="logoImg" src="https://parknest.nl/wp-content/uploads/2024/09/Parknest-logo-transp-shadow.png" alt="Parknest" style="width:36px;height:36px;object-fit:contain;border-radius:8px;">
+    </div>
+  </div>
+  <div class="hdr-arrows">
+    <button class="nb" id="pB" title="Vorige (←)">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <button class="nb" id="nB" title="Volgende (→)">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>
+  </div>
   <div class="tb-split" id="tBGroup">
     <button class="tb tb-main" id="tB">Vandaag</button>
     <button class="tb tb-arrow" id="tBDrop" title="Kies datum">
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
     </button>
   </div>
-  <!-- datepicker popup -->
-  <div id="datePicker" style="display:none">
-    <div id="dpHeader">
-      <button id="dpPrev">&#8592;</button>
-      <span id="dpMonthLabel"></span>
-      <button id="dpNext">&#8594;</button>
-    </div>
-    <div id="dpGrid"></div>
-  </div>
-  <button class="nb" id="nB" title="Volgende (→)">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-  </button>
-  <div id="pl">…</div>
   <div class="vt">
     <button class="vb on" id="bW">Week</button>
     <button class="vb" id="bD">Dag</button>
@@ -51,33 +49,22 @@
     <input type="checkbox" id="mainLayerToggle" checked>
     <label for="mainLayerToggle">Events</label>
   </div>
-  <div class="tb-split" id="printBtnGroup">
-    <button class="tb tb-main" id="printLandBtn" title="Afdrukken liggend (A4 ↔)" style="padding:4px 10px;display:flex;align-items:center;gap:4px;font-size:.72rem">
-      <svg width="14" height="11" viewBox="0 0 24 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="22" height="16" rx="2"/><line x1="1" y1="5" x2="23" y2="5"/></svg>
-      <span class="print-label">Print</span>
+  <div class="hdr-break"></div>
+  <div class="hdr-date-btn" id="hdrDateBtn">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    <span id="pl">…</span>
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+  </div>
+  <div class="hdr-share-group" id="hdrShareGroup" aria-label="Delen">
+    <button class="tb hdr-share-btn" id="shareBtn" title="Deel als afbeelding">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+      <span class="share-label">Deel</span>
     </button>
-    <button class="tb tb-arrow" id="printDrop" title="Kies afdrukrichting">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    <button class="tb hdr-link-btn" id="shareDrop" title="Kopieer link">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      <span class="share-label">Link</span>
     </button>
   </div>
-  <div id="printMenu" style="display:none">
-    <button class="print-opt" id="printLandOpt">
-      <svg width="16" height="12" viewBox="0 0 24 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="22" height="16" rx="2"/><line x1="1" y1="5" x2="23" y2="5"/><line x1="6" y1="9" x2="18" y2="9"/><line x1="6" y1="12" x2="15" y2="12"/></svg>
-      Liggend (A4 ↔)
-    </button>
-    <button class="print-opt" id="printPortOpt">
-      <svg width="11" height="15" viewBox="0 0 16 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="14" height="20" rx="2"/><line x1="1" y1="6" x2="15" y2="6"/><line x1="4" y1="10" x2="12" y2="10"/><line x1="4" y1="13" x2="10" y2="13"/></svg>
-      Staand (A4 ↕)
-    </button>
-  </div>
-  <button class="tb" id="shareBtn" title="Deel als afbeelding (PNG)" style="padding:4px 8px;display:flex;align-items:center;gap:4px;font-size:.72rem">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-    <span class="share-label">Deel</span>
-  </button>
-  <button id="installBtn" title="Voeg toe aan startscherm">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v13M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
-    Installeer
-  </button>
   <div id="ls">Laden…</div>
   <div id="authBar" class="auth-bar">
     <div id="loginInfo">Niet ingelogd</div>
@@ -86,6 +73,102 @@
     <span id="googleStatus" style="font-size:.72rem;font-weight:600;margin-left:8px;"></span>
   </div>
 </header>
+<!-- datepicker drawer (in-page, slides down below header) -->
+<div id="datePicker">
+  <div class="dp-inner">
+    <div id="dpHeader">
+      <button id="dpPrev">&#8592;</button>
+      <span id="dpMonthLabel"></span>
+      <button id="dpNext">&#8594;</button>
+    </div>
+    <div id="dpGrid"></div>
+  </div>
+</div>
+
+<div id="menuOverlay"></div>
+
+<div id="settingsPanel">
+  <div class="stp-head">
+    <span>Menu</span>
+    <button id="stpClose" title="Sluiten">×</button>
+  </div>
+
+  <div class="stp-section">
+    <button class="stp-btn" id="stpHoursBtn">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      Urenoverzicht
+    </button>
+  </div>
+
+  <div id="installSection" class="stp-section">
+    <button class="stp-btn stp-btn-install" id="installBtn">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v13M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+      Installeer als app
+    </button>
+    <div id="iosInstallTip" style="display:none;margin-top:8px;padding:10px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:.78rem;color:#0c4a6e;line-height:1.6">
+      <strong>iPhone / iPad:</strong><br>
+      Tik op <strong>□↑</strong> (Delen) onderaan Safari<br>
+      → <strong>"Zet op beginscherm"</strong>
+    </div>
+  </div>
+
+  <div class="stp-section stp-section-print">
+    <span class="stp-print-label">Print<br>Orientation</span>
+    <button class="stp-print-btn" id="printLandBtn" title="Afdrukken liggend (A4 ↔)">
+      <svg width="28" height="20" viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="26" height="18" rx="1.5"/></svg>
+    </button>
+    <button class="stp-print-btn" id="printPortOpt" title="Afdrukken staand (A4 ↕)">
+      <svg width="20" height="28" viewBox="0 0 20 28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="18" height="26" rx="1.5"/></svg>
+    </button>
+  </div>
+
+  <div class="stp-section">
+    <div class="stp-label">Instellingen</div>
+    <label class="stp-field">
+      <span>Thema</span>
+      <select id="stpThemeSelect">
+        <option value="blockery">Blockery</option>
+        <option value="softy">Softy</option>
+        <option value="sketchy">Sketchy</option>
+      </select>
+    </label>
+    <label class="stp-field">
+      <span>Animatie</span>
+      <select id="stpAnimSelect">
+        <option value="0">Grow</option>
+        <option value="1">Rise</option>
+        <option value="2">Fade</option>
+      </select>
+    </label>
+    <label class="stp-field">
+      <span>Vernieuwen</span>
+      <select id="stpRefreshSelect">
+        <option value="5">5 min</option>
+        <option value="15">15 min</option>
+        <option value="30">30 min</option>
+        <option value="60">1 uur</option>
+        <option value="0">Uit</option>
+      </select>
+    </label>
+    <label class="stp-field">
+      <span>Week start</span>
+      <select id="stpWeekSelect">
+        <option value="1">Maandag</option>
+        <option value="0">Zondag</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="stp-footer">
+    <button id="stpReset">Herstel standaardinstellingen</button>
+    <div class="stp-about">
+      <div class="stp-about-name">Parknest Rooster</div>
+      <div class="stp-about-ver" id="stp-ver">v2026.08.09</div>
+      <div class="stp-about-meta">Door <a href="https://digizaal.net" target="_blank" rel="noopener">Digizaal</a></div>
+    </div>
+  </div>
+</div>
+
 <div id="editorPanel" class="editor-panel" style="display:none;margin:10px;padding:10px;background:#f9f9f8;border:1px solid #d0d0d0;border-radius:10px;max-width:980px;margin-left:auto;margin-right:auto;">
   <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
     <label style="font-weight:700;font-size:.86rem;">Datum <input type="date" id="newShiftDate" style="margin-left:4px"></label>
@@ -105,7 +188,7 @@
 <div id="calOuter"><div id="slidePort"><div id="slideInner"><div id="panelPrev"></div><div id="panelCur" id="panelCur"><div id="skelLoad"></div></div><div id="panelNext"></div></div></div></div>
 <div class="tip" id="tip"></div>
 
-<script src="rooster/rooster-config.js"></script>
-<script src="rooster/rooster.js?v=111"></script>
+<script src="rooster/rooster-config.js?v=2"></script>
+<script src="rooster/rooster.js?v=127"></script>
 </body>
 </html>

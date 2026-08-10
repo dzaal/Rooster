@@ -324,10 +324,10 @@ const ICS = ICS_ROOSTER; // backward compat
 
 // Each proxy function receives the exact ICS URL to fetch
 const PROXIES = [
-  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-  url => `proxy.php?url=${encodeURIComponent(url)}`,
+  (url, opts={}) => `proxy.php?url=${encodeURIComponent(url)}${opts.forceRefresh ? '&refresh=1' : ''}&_=${opts.cacheBust}`,
+  (url, opts={}) => `https://api.allorigins.win/raw?url=${encodeURIComponent(opts.sourceUrl)}&_=${opts.cacheBust}`,
+  (url, opts={}) => `https://corsproxy.io/?${encodeURIComponent(opts.sourceUrl)}&_=${opts.cacheBust}`,
+  (url, opts={}) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(opts.sourceUrl)}&_=${opts.cacheBust}`,
 ];
 
 const SKIP=2;
@@ -564,21 +564,39 @@ function showSkeleton(){
   if(el)el.innerHTML=h;
 }
 
-async function tryFetch(proxyFn, url) {
-  const r = await fetch(proxyFn(url), {signal: AbortSignal.timeout(5000)});
+function appendQueryParam(url, key, value){
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+}
+
+async function tryFetch(proxyFn, url, opts={}) {
+  const cacheBust = Date.now();
+  const sourceUrl = opts.forceRefresh ? appendQueryParam(url, '_refresh', cacheBust) : url;
+  const r = await fetch(proxyFn(url, {...opts, cacheBust, sourceUrl}), {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(5000)
+  });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const t = await r.text();
   if (!t.includes('BEGIN:VCALENDAR')) throw new Error('Geen geldige ICS data');
   return t;
 }
 
-async function fetchEvents(){
+async function fetchEvents(forceRefresh=false){
   document.getElementById('ls').textContent='Laden…';
   showSkeleton();
 
   async function fetchOne(icsUrl, tag){
-    const text = await Promise.any(PROXIES.map(fn => tryFetch(fn, icsUrl)));
-    return parseICS(text).map(ev=>({...ev,_cal:tag}));
+    let lastError;
+    for(const proxyFn of PROXIES){
+      try{
+        const text = await tryFetch(proxyFn, icsUrl, {forceRefresh});
+        return parseICS(text).map(ev=>({...ev,_cal:tag}));
+      } catch(e){
+        lastError=e;
+      }
+    }
+    throw lastError || new Error('Kalender kon niet worden geladen');
   }
 
   try {
@@ -645,7 +663,7 @@ async function fetchEvents(){
   }
 }
 
-function retryLoad(){ showSkeleton(); fetchEvents(); }
+function retryLoad(){ showSkeleton(); fetchEvents(true); }
 
 function showPhpCode(){
   const el=document.getElementById('phpCode');
@@ -654,11 +672,12 @@ function showPhpCode(){
 // proxy.php — sla dit op naast parknest-rooster.html op je Plesk server
 $ics_url = 'https://calendar.google.com/calendar/ical/f0a70a3f3862ea4c0202a62f4bd8b3298a1cd69d53e57944c0dcaeab39b54dc6%40group.calendar.google.com/public/basic.ics';
 
-// Cache 15 minuten
+// Cache 15 minuten, maar refresh=1 haalt altijd opnieuw bij de ICS-bron
 $cache_file = sys_get_temp_dir() . '/parknest_ics_cache.txt';
 $cache_time = 900;
+$force_refresh = isset($_GET['refresh']) && $_GET['refresh'] === '1';
 
-if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time) {
+if (!$force_refresh && file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time) {
     $data = file_get_contents($cache_file);
 } else {
     $data = file_get_contents($ics_url);
@@ -667,7 +686,9 @@ if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time)
 
 header('Content-Type: text/calendar; charset=UTF-8');
 header('Access-Control-Allow-Origin: *');
-header('Cache-Control: max-age=900');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
 echo $data;`;
 }
 

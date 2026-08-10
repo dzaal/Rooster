@@ -6,9 +6,9 @@ const ICS = ICS_ROOSTER; // backward compat
 
 // Each proxy function receives the exact ICS URL to fetch
 const PROXIES = [
-  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-  url => `rooster/proxy.php?url=${encodeURIComponent(url)}`,
+  (url, opts={}) => `rooster/proxy.php?url=${encodeURIComponent(url)}${opts.forceRefresh ? '&refresh=1' : ''}&_=${opts.cacheBust}`,
+  (url, opts={}) => `https://api.allorigins.win/raw?url=${encodeURIComponent(opts.sourceUrl)}&_=${opts.cacheBust}`,
+  (url, opts={}) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(opts.sourceUrl)}&_=${opts.cacheBust}`,
 ];
 
 const LOCAL_STORAGE_KEY = 'parknest_rooster_local_shifts';
@@ -150,10 +150,10 @@ const MN = Array.from({length:12},(_,i)=>new Intl.DateTimeFormat(_locale,{month:
 
 // UI string translations
 const _UI_STRINGS = {
-  nl:{today:'Today',week:'Week',day:'Day',events:'Events',print:'Print',share:'Deel',install:'Installeer',loading:'Laden\u2026',loadFail:'\u26a0 Laden mislukt',wkShort:'Wk',calFail:'Kalender kon niet worden geladen'},
-  en:{today:'Today',week:'Week',day:'Day',events:'Events',print:'Print',share:'Share',install:'Install',loading:'Loading\u2026',loadFail:'\u26a0 Load failed',wkShort:'Wk',calFail:'Calendar could not be loaded'},
-  de:{today:'Heute',week:'Woche',day:'Tag',events:'Events',print:'Drucken',share:'Teilen',install:'Installieren',loading:'Laden\u2026',loadFail:'\u26a0 Laden fehlgeschlagen',wkShort:'KW',calFail:'Kalender konnte nicht geladen werden'},
-  tr:{today:'Bug\xfcn',week:'Hafta',day:'G\xfcn',events:'Etkinlik',print:'Yazd\u0131r',share:'Payla\u015f',install:'Y\xfckle',loading:'Y\xfckleniyor\u2026',loadFail:'\u26a0 Y\xfckleme ba\u015far\u0131s\u0131z',wkShort:'Hf',calFail:'Takvim y\xfcklenemedi'},
+  nl:{today:'Today',week:'Week',day:'Day',hours:'Uren',events:'Events',print:'Print',share:'Deel',install:'Installeer',loading:'Laden\u2026',loadFail:'\u26a0 Laden mislukt',wkShort:'Wk',calFail:'Kalender kon niet worden geladen'},
+  en:{today:'Today',week:'Week',day:'Day',hours:'Hours',events:'Events',print:'Print',share:'Share',install:'Install',loading:'Loading\u2026',loadFail:'\u26a0 Load failed',wkShort:'Wk',calFail:'Calendar could not be loaded'},
+  de:{today:'Heute',week:'Woche',day:'Tag',hours:'Stunden',events:'Events',print:'Drucken',share:'Teilen',install:'Installieren',loading:'Laden\u2026',loadFail:'\u26a0 Laden fehlgeschlagen',wkShort:'KW',calFail:'Kalender konnte nicht geladen werden'},
+  tr:{today:'Bug\xfcn',week:'Hafta',day:'G\xfcn',hours:'Saat',events:'Etkinlik',print:'Yazd\u0131r',share:'Payla\u015f',install:'Y\xfckle',loading:'Y\xfckleniyor\u2026',loadFail:'\u26a0 Y\xfckleme ba\u015far\u0131s\u0131z',wkShort:'Hf',calFail:'Takvim y\xfcklenemedi'},
 };
 const UI = _UI_STRINGS[_lang] || _UI_STRINGS.nl;
 
@@ -180,7 +180,10 @@ function applyLocaleUI(){
   const sl = document.querySelector('#shareBtn .share-label');
   if(sl) sl.textContent = UI.share;
   const ib = document.getElementById('installBtn');
-  if(ib){ const tn=ib.lastChild; if(tn&&tn.nodeType===3) tn.textContent=' '+UI.install; }
+  if(ib){
+    const tn=ib.lastChild;
+    if(tn&&tn.nodeType===3) tn.textContent=ib.closest('#settingsPanel')?' Installeer als app':' '+UI.install;
+  }
 }
 
 let HH=40; // px per hour on screen; day view recalculates this from viewport height
@@ -215,10 +218,22 @@ function updateDayViewMetrics(hourCount){
   document.body.style.setProperty('--day-view-width', `${boundedWidth}px`);
 }
 
-let allEv=[],vm='week',anc=sowk(new Date());
+// Apply menu cookie settings early.
+(()=>{
+  const m=document.cookie.match(/(?:^|; )overlap_settings=([^;]*)/);
+  if(!m)return;
+  try{
+    const st=JSON.parse(decodeURIComponent(m[1]));
+    if(st.theme)document.body.className=document.body.className.replace(/\btheme-\w+\b/,'').trim()+(' theme-'+st.theme);
+    if(st.weekStart!==undefined&&CONFIG.defaults)CONFIG.defaults.weekStartDay=+st.weekStart;
+    if(st.refreshMin!==undefined)window._roosterRefreshMin=+st.refreshMin;
+  }catch(_){}
+})();
+
+let allEv=[],vm='week',anc=sowk(new Date()),hoursFocusPeriod='month';
 // Restore view/date from URL hash (e.g. #day/2026-05-10 or #week/2026-05-04)
 (()=>{
-  const m=location.hash.match(/^#(week|day)\/(\d{4}-\d{2}-\d{2})$/);
+  const m=location.hash.match(/^#(week|day|hours)\/(\d{4}-\d{2}-\d{2})$/);
   if(m){
     const [,mode,ds]=m;
     const d=new Date(ds+'T00:00:00');
@@ -253,10 +268,11 @@ function dynamicHours(evList){
   return{sh:Math.max(0,Math.floor(minH)-1), eh:Math.max(Math.min(24,Math.ceil(maxH)+1),minEh)};
 }
 
-function sowk(d){const c=new Date(d),dw=c.getDay(),df=dw===0?-6:1-dw;c.setDate(c.getDate()+df);c.setHours(0,0,0,0);return c}
+function sowk(d){const c=new Date(d),dw=c.getDay(),ws=((CONFIG.defaults||{}).weekStartDay??1),df=ws===0?-dw:(dw===0?-6:1-dw);c.setDate(c.getDate()+df);c.setHours(0,0,0,0);return c}
 function addD(d,n){const c=new Date(d);c.setDate(c.getDate()+n);return c}
 function same(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate()}
 function p2(n){return String(n).padStart(2,'0')}
+function esc(s){return String(s??'').replace(/[&<>\"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]))}
 function timeHour(d){return d.getHours()+d.getMinutes()/60}
 function eventEndHour(ev, fallbackEndHour){
   const sh=timeHour(ev.start);
@@ -495,21 +511,39 @@ function showSkeleton(){
   if(el)el.innerHTML=h;
 }
 
-async function tryFetch(proxyFn, url) {
-  const r = await fetch(proxyFn(url), {signal: AbortSignal.timeout(5000)});
+function appendQueryParam(url, key, value){
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+}
+
+async function tryFetch(proxyFn, url, opts={}) {
+  const cacheBust = Date.now();
+  const sourceUrl = opts.forceRefresh ? appendQueryParam(url, '_refresh', cacheBust) : url;
+  const r = await fetch(proxyFn(url, {...opts, cacheBust, sourceUrl}), {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(5000)
+  });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const t = await r.text();
   if (!t.includes('BEGIN:VCALENDAR')) throw new Error('Geen geldige ICS data');
   return t;
 }
 
-async function fetchEvents(silent=false){
+async function fetchEvents(silent=false, forceRefresh=false){
   document.getElementById('ls').textContent=UI.loading;
   if(!silent) showSkeleton();
 
   async function fetchOne(icsUrl, tag){
-    const text = await Promise.any(PROXIES.map(fn => tryFetch(fn, icsUrl)));
-    return parseICS(text).map(ev=>({...ev,_cal:tag}));
+    let lastError;
+    for(const proxyFn of PROXIES){
+      try{
+        const text = await tryFetch(proxyFn, icsUrl, {forceRefresh});
+        return parseICS(text).map(ev=>({...ev,_cal:tag}));
+      } catch(e){
+        lastError=e;
+      }
+    }
+    throw lastError || new Error('Kalender kon niet worden geladen');
   }
 
   try {
@@ -582,7 +616,7 @@ async function fetchEvents(silent=false){
   }
 }
 
-function retryLoad(){ showSkeleton(); fetchEvents(); }
+function retryLoad(){ showSkeleton(); fetchEvents(false, true); }
 
 function showPhpCode(){
   const el=document.getElementById('phpCode');
@@ -591,11 +625,12 @@ function showPhpCode(){
 // proxy.php — sla dit op naast parknest-rooster.html op je Plesk server
 $ics_url = 'https://calendar.google.com/calendar/ical/f0a70a3f3862ea4c0202a62f4bd8b3298a1cd69d53e57944c0dcaeab39b54dc6%40group.calendar.google.com/public/basic.ics';
 
-// Cache 15 minuten
+// Cache 15 minuten, maar refresh=1 haalt altijd opnieuw bij de ICS-bron
 $cache_file = sys_get_temp_dir() . '/parknest_ics_cache.txt';
 $cache_time = 900;
+$force_refresh = isset($_GET['refresh']) && $_GET['refresh'] === '1';
 
-if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time) {
+if (!$force_refresh && file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time) {
     $data = file_get_contents($cache_file);
 } else {
     $data = file_get_contents($ics_url);
@@ -604,7 +639,9 @@ if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time)
 
 header('Content-Type: text/calendar; charset=UTF-8');
 header('Access-Control-Allow-Origin: *');
-header('Cache-Control: max-age=900');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
 echo $data;`;
 }
 
@@ -690,7 +727,7 @@ async function addShiftAction(){
 
   localShifts.push(newShift);
   saveLocalShifts();
-  fetchEvents();
+  fetchEvents(false, true);
   showShareToast(`Dienst toegevoegd voor ${crew} op ${date}`);
 }
 
@@ -701,7 +738,7 @@ function deleteLocalShift(localId){
   }
   localShifts = localShifts.filter(s=>s.id!==localId);
   saveLocalShifts();
-  fetchEvents();
+  fetchEvents(false, true);
 }
 
 function initEditFeatures(){
@@ -745,6 +782,7 @@ function hasTuesdayEvents(anchorDate){
 
 // Returns column definitions: one per visible day, no merging
 function getColDefs(anchorDate){
+  if(vm==='hours') return [];
   if(vm==='day') return [{days:[new Date(anchorDate)],narrow:false}];
   const showTue=hasTuesdayEvents(anchorDate);
   const week=[];for(let i=0;i<7;i++)week.push(addD(anchorDate,i));
@@ -754,6 +792,7 @@ function getColDefs(anchorDate){
 }
 
 function getDays(){
+  if(vm==='hours') return [new Date(anc)];
   if(vm==='day') return [new Date(anc)];
   const showTue=hasTuesdayEvents(anc);
   const week=[];for(let i=0;i<7;i++)week.push(addD(anc,i));
@@ -786,6 +825,24 @@ function normalizeName(name){
   return String(name||'').replace(/\?/g,'').trim();
 }
 
+function normalizeCrewToken(name){
+  return String(name||'')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[?`"'’‘´]/g,'')
+    .replace(/[^a-zA-Z0-9]+/g,'')
+    .toLowerCase();
+}
+
+function crewAliasMap(){
+  const map=new Map();
+  (CONFIG.crew||[]).forEach(c=>map.set(normalizeCrewToken(c.name),c.name));
+  (CONFIG.crew||[]).forEach(c=>{
+    const key=normalizeCrewToken(c.name);
+    if(!map.has(key+'1'))map.set(key+'1',c.name);
+  });
+  return map;
+}
+
 function nameHasQuestionMark(name){
   return String(name||'').includes('?');
 }
@@ -794,6 +851,62 @@ function nameHash(str){
   let h=0;
   for(let i=0;i<str.length;i++)h=(h*31+str.charCodeAt(i))>>>0;
   return h%PALETTES.length;
+}
+function hashInt(str){
+  let h=2166136261;
+  str=String(str||'');
+  for(let i=0;i<str.length;i++){
+    h^=str.charCodeAt(i);
+    h=Math.imul(h,16777619)>>>0;
+  }
+  return h>>>0;
+}
+function sketchTextureSeed(ev, salt=''){
+  const start=ev?.start instanceof Date?ev.start.toISOString():String(ev?.start||'');
+  const end=ev?.end instanceof Date?ev.end.toISOString():String(ev?.end||'');
+  return hashInt(`${salt}|${ev?.uid||ev?.localId||''}|${ev?.title||''}|${start}|${end}`);
+}
+function sketchTextureStyle(ev, salt=''){
+  const h=sketchTextureSeed(ev,salt);
+  const n=(shift,bits=7)=>(h>>>shift)&((1<<bits)-1);
+  const rot=(n(0,4)-7)*0.7;
+  const tooth=54+n(4,5);
+  const fill=43+n(8,5);
+  const cross=31+n(12,4);
+  const grain=4+n(16,2);
+  const opacity=(0.46+n(18,4)*0.014).toFixed(2);
+  const ox=2+n(22,2);
+  const oy=2+n(24,2);
+  const wobble=(n(26,3)-3)*0.35;
+  const afterScale=(0.97+(n(29,3)/7)*0.06).toFixed(3);
+  const durationMs=(ev?.end instanceof Date&&ev?.start instanceof Date)?ev.end-ev.start:0;
+  const durationH=Math.max(0,Math.min(6,durationMs/3600000));
+  const afterRot=((durationH-1)*0.4).toFixed(2);
+  return [
+    `--sk-paper-x:${n(21,6)-18}px`,
+    `--sk-paper-y:${n(27,6)-18}px`,
+    `--sk-pencil-x:${n(3,6)-18}px`,
+    `--sk-pencil-y:${n(9,6)-18}px`,
+    `--sk-cross-x:${n(15,5)-10}px`,
+    `--sk-cross-y:${n(20,5)-10}px`,
+    `--sk-rot:${rot.toFixed(1)}deg`,
+    `--sk-paper-size:${tooth}px`,
+    `--sk-fill-size:${fill}px`,
+    `--sk-cross-size:${cross}px`,
+    `--sk-grain-gap:${grain}px`,
+    `--sk-wax-opacity:${opacity}`,
+    `--sk-corner-x:${ox}px`,
+    `--sk-corner-y:${oy}px`,
+    `--sk-border-rot:${wobble.toFixed(2)}deg`,
+    `--sk-after-scale:${afterScale}`,
+    `--sk-after-rot:${afterRot}deg`
+  ].join(';');
+}
+function applySketchTexture(dv, ev, salt=''){
+  sketchTextureStyle(ev,salt).split(';').forEach(pair=>{
+    const [key,value]=pair.split(':');
+    if(key&&value)dv.style.setProperty(key,value);
+  });
 }
 
 function hexToRgb(hex){
@@ -804,6 +917,18 @@ function hexToRgb(hex){
 function rgbaFromHex(hex, alpha){
   const [r,g,b] = hexToRgb(hex);
   return `rgba(${r},${g},${b},${alpha})`;
+}
+function darkInkFromHex(hex){
+  const [r,g,b]=hexToRgb(hex);
+  const darken=v=>Math.max(18,Math.round(v*0.36));
+  return `rgb(${darken(r)},${darken(g)},${darken(b)})`;
+}
+function luminanceFromHex(hex){
+  const [r,g,b]=hexToRgb(hex);
+  return (r*299+g*587+b*114)/1000;
+}
+function sketchInkFromHex(hex){
+  return luminanceFromHex(hex)<150?'#fff':darkInkFromHex(hex);
 }
 function contrastTextColor(hex){
   const [r,g,b]=hexToRgb(hex);
@@ -828,6 +953,8 @@ function applyColor(dv, title){
     dv.style.background = isQuestion ? rgbaFromHex(baseColor, 0.85) : baseColor;
     dv.style.color = isQuestion ? contrast : contrast;
     dv.style.borderLeftColor = baseColor;
+    dv.style.setProperty('--sk-bg-color', baseColor);
+    dv.style.setProperty('--sk-ink-color', sketchInkFromHex(baseColor));
     if(isQuestion){
       dv.style.border = '4px dashed #000';
       dv.style.borderRadius = '6px';
@@ -845,6 +972,8 @@ function applyColor(dv, title){
   dv.style.background = isQuestion ? rgbaFromHex(outlinedBorderColor, 0.85) : bg;
   dv.style.color = isQuestion ? contrast : tx;
   dv.style.borderLeftColor = ac;
+  dv.style.setProperty('--sk-bg-color', bg);
+  dv.style.setProperty('--sk-ink-color', sketchInkFromHex(bg));
   if(isQuestion){
     dv.style.border = '4px dashed #000';
     dv.style.borderRadius = '6px';
@@ -905,7 +1034,175 @@ function dynamicHoursForCols(exp, cols){
   }));
 }
 
+
+function startOfMonth(d){return new Date(d.getFullYear(),d.getMonth(),1)}
+function startOfYear(d){return new Date(d.getFullYear(),0,1)}
+function rangeForHours(period, anchorDate){
+  const start = period==='week' ? sowk(anchorDate) : period==='month' ? startOfMonth(anchorDate) : startOfYear(anchorDate);
+  const end = period==='week' ? addD(start,7) : period==='month' ? new Date(start.getFullYear(),start.getMonth()+1,1) : new Date(start.getFullYear()+1,0,1);
+  return {start,end};
+}
+function fmtDate(d){return `${DL[d.getDay()]} ${d.getDate()} ${MN[d.getMonth()]} ${d.getFullYear()}`}
+function fmtTime(d){return `${p2(d.getHours())}:${p2(d.getMinutes())}`}
+function fmtHours(h){return (Math.round(h*100)/100).toLocaleString(_locale,{minimumFractionDigits:h%1?1:0,maximumFractionDigits:2})}
+function hoursPeriodLabel(period, anchorDate){
+  const {start,end}=rangeForHours(period,anchorDate);
+  if(period==='week'){
+    const last=addD(end,-1);
+    return `${UI.week} ${getWeekNumber(start)}: ${start.getDate()}-${last.getDate()} ${MN[last.getMonth()]} ${last.getFullYear()}`;
+  }
+  if(period==='month') return new Intl.DateTimeFormat(_locale,{month:'long',year:'numeric'}).format(start);
+  return String(start.getFullYear());
+}
+function crewNamesForEvent(ev){
+  const rawTitle=String(ev.title||'');
+  const cleanTitle=normalizeName(rawTitle).toLowerCase();
+  if(/\b(afwezig|vakantie|niet)\b/i.test(cleanTitle))return [];
+
+  const aliases=crewAliasMap();
+  const names=[];
+  const seen=new Set();
+  const parts=rawTitle.split(/[\/+,;&]|\ben\b/i);
+  parts.forEach(part=>{
+    const words=String(part).match(/[A-Za-zÀ-ÿ0-9?`'’‘´-]+/g)||[];
+    words.forEach(word=>{
+      const key=normalizeCrewToken(word);
+      const crew=aliases.get(key);
+      if(crew&&!seen.has(crew.toLowerCase())){
+        seen.add(crew.toLowerCase());
+        names.push(crew);
+      }
+    });
+  });
+  return names;
+}
+function expandedShiftEntries(rangeStart, rangeEnd){
+  const now=new Date();
+  const effectiveEnd=new Date(Math.min(rangeEnd.getTime(),now.getTime()));
+  if(effectiveEnd<=rangeStart)return [];
+  const expanded=[];
+  const inclusiveEnd=new Date(effectiveEnd.getTime()-1);
+  allEv.forEach(ev=>expanded.push(...expand(ev,rangeStart,inclusiveEnd)));
+  return expanded
+    .filter(ev=>isShiftEvent(ev)&&!ev.start?._ad&&ev.start&&ev.end)
+    .flatMap(ev=>{
+      const crews=crewNamesForEvent(ev);
+      if(!crews.length)return [];
+      const start=new Date(Math.max(ev.start.getTime(),rangeStart.getTime()));
+      const end=new Date(Math.min(eventEndMs(ev),effectiveEnd.getTime()));
+      const hours=Math.max(0,(end-start)/3600000);
+      if(!hours)return [];
+      return crews.map(crew=>({crew,start,end,hours,title:ev.title||crew,source:ev._cal||'rooster'}));
+    })
+    .sort((a,b)=>a.start-b.start||a.crew.localeCompare(b.crew));
+}
+function totalHoursForCrew(crew, start, end){
+  return expandedShiftEntries(start,end)
+    .filter(e=>e.crew.toLowerCase()===crew.toLowerCase())
+    .reduce((sum,e)=>sum+e.hours,0);
+}
+function hoursDataFor(anchorDate){
+  const periods=['week','month','year'];
+  const entriesByPeriod={};
+  periods.forEach(period=>{
+    const {start,end}=rangeForHours(period,anchorDate);
+    entriesByPeriod[period]=expandedShiftEntries(start,end);
+  });
+  return (CONFIG.crew||[]).map(c=>{
+    const totals={};
+    periods.forEach(period=>{
+      totals[period]=entriesByPeriod[period]
+        .filter(e=>e.crew.toLowerCase()===c.name.toLowerCase())
+        .reduce((sum,e)=>sum+e.hours,0);
+    });
+    return {...c,totals};
+  }).filter(c=>c.totals.year>0||c.totals.month>0||c.totals.week>0);
+}
+function hourBreakdownItems(period, anchorDate){
+  if(period==='year'){
+    const y=anchorDate.getFullYear();
+    return Array.from({length:12},(_,m)=>{
+      const start=new Date(y,m,1), end=new Date(y,m+1,1);
+      return {label:new Intl.DateTimeFormat(_locale,{month:'long'}).format(start),start,end,next:'month'};
+    });
+  }
+  if(period==='month'){
+    const monthStart=startOfMonth(anchorDate), monthEnd=new Date(monthStart.getFullYear(),monthStart.getMonth()+1,1);
+    const items=[];
+    for(let wk=sowk(monthStart);wk<monthEnd;wk=addD(wk,7)){
+      const start=new Date(Math.max(wk.getTime(),monthStart.getTime()));
+      const end=new Date(Math.min(addD(wk,7).getTime(),monthEnd.getTime()));
+      const last=addD(end,-1);
+      items.push({label:`${UI.week} ${getWeekNumber(wk)}: ${start.getDate()}-${last.getDate()} ${MN[last.getMonth()]}`,start,end,next:'week'});
+    }
+    return items;
+  }
+  const weekStart=sowk(anchorDate);
+  return Array.from({length:7},(_,i)=>{
+    const start=addD(weekStart,i), end=addD(start,1);
+    return {label:fmtDate(start),start,end,next:'day'};
+  });
+}
+function renderHoursShiftList(detail, crew, start, end, label){
+  const rows=expandedShiftEntries(start,end).filter(e=>e.crew.toLowerCase()===crew.toLowerCase());
+  const total=rows.reduce((sum,e)=>sum+e.hours,0);
+  if(!detail)return;
+  const body=rows.length
+    ? rows.map(e=>`<tr><td>${esc(fmtDate(e.start))}</td><td>${fmtTime(e.start)}-${fmtTime(e.end)}</td><td>${esc(e.title)}</td><td>${fmtHours(e.hours)}</td></tr>`).join('')
+    : `<tr><td colspan="4" class="hours-empty">Geen diensten in deze periode.</td></tr>`;
+  detail.innerHTML=`<div class="hours-detail-head"><h3>${esc(crew)} - ${esc(label)}</h3><button class="hours-close" type="button" title="Sluit">×</button></div>
+    <table class="hours-table"><thead><tr><th>Datum</th><th>Tijd</th><th>Dienst</th><th>Uren</th></tr></thead><tbody>${body}</tbody><tfoot><tr><td colspan="3">Totaal</td><td>${fmtHours(total)}</td></tr></tfoot></table>`;
+  detail.querySelector('.hours-close')?.addEventListener('click',()=>{detail.innerHTML='';});
+  detail.scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+function renderHoursBreakdown(detail, crew, period, anchorDate){
+  if(!detail)return;
+  const items=hourBreakdownItems(period, anchorDate).map(item=>({...item,hours:totalHoursForCrew(crew,item.start,item.end)}));
+  const total=items.reduce((sum,item)=>sum+item.hours,0);
+  const title=period==='year'?'Maanden':period==='month'?'Weken':'Dagen';
+  detail.innerHTML=`<div class="hours-detail-head"><h3>${esc(crew)} - ${title} - ${esc(hoursPeriodLabel(period,anchorDate))}</h3><button class="hours-close" type="button" title="Sluit">×</button></div>
+    <table class="hours-table"><thead><tr><th>Periode</th><th>Uren</th></tr></thead><tbody>
+    ${items.map((item,idx)=>`<tr class="${item.hours?'':'hours-zero'}"><td><button class="hours-period" type="button" data-hours-break="${idx}"><span>${esc(item.label)}</span><span>${item.next==='day'?'Details':'Open'}</span></button></td><td>${fmtHours(item.hours)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td>Totaal</td><td>${fmtHours(total)}</td></tr></tfoot></table>`;
+  detail.querySelector('.hours-close')?.addEventListener('click',()=>{detail.innerHTML='';});
+  detail.querySelectorAll('[data-hours-break]').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const item=items[+btn.dataset.hoursBreak];
+      if(item.next==='day') renderHoursShiftList(detail, crew, item.start, item.end, item.label);
+      else renderHoursBreakdown(detail, crew, item.next, item.start);
+    });
+  });
+  detail.scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+function renderHoursView(container, anchorDate){
+  const rows=hoursDataFor(anchorDate);
+  const periodLabels={week:'per week',month:'per maand',year:'per jaar'};
+  container.innerHTML=`<div class="hours-report"><div class="hours-summary">
+    ${rows.length?rows.map(c=>{
+      const color=c.color||crewColor(c.name);
+      const totalButtons=['week','month','year'].map(period=>`<button class="hours-total" type="button" data-hours-crew="${esc(c.name)}" data-hours-period="${period}">
+        <b>${fmtHours(c.totals[period])}</b><span>${periodLabels[period]}</span>
+      </button>`).join('');
+      return `<section class="hours-person"><div class="hours-person-head"><span class="hours-swatch" style="background:${color}"></span><span class="hours-name">${esc(c.name)}</span></div><div class="hours-totals">${totalButtons}</div><div class="hours-inline-detail hours-detail"></div></section>`;
+    }).join(''):`<div class="hours-empty">Geen uren gevonden in ${esc(hoursPeriodLabel('year',anchorDate))}.</div>`}
+    </div></div>`;
+  container.querySelectorAll('[data-hours-crew]').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      hoursFocusPeriod=btn.dataset.hoursPeriod||'month';
+      updateLabel();
+      container.querySelectorAll('.hours-inline-detail').forEach(el=>{if(el!==btn.closest('.hours-person')?.querySelector('.hours-inline-detail'))el.innerHTML='';});
+      const detail=btn.closest('.hours-person')?.querySelector('.hours-inline-detail');
+      renderHoursBreakdown(detail,btn.dataset.hoursCrew,hoursFocusPeriod,anc);
+    });
+  });
+}
+
 function renderInto(container, anchorDate){
+  if(vm==='hours'){
+    updateDayViewMetrics(0);
+    renderHoursView(container, anchorDate);
+    return;
+  }
   const colDefs=getColDefs(anchorDate);
   const days=colDefs.flatMap(c=>c.days); // all dates for expand
   const today=new Date();today.setHours(0,0,0,0);
@@ -987,6 +1284,7 @@ function renderInto(container, anchorDate){
 function render(dir=0){
   document.body.classList.toggle('view-day', vm==='day');
   document.body.classList.toggle('view-week', vm==='week');
+  document.body.classList.toggle('view-hours', vm==='hours');
   const inner  = document.getElementById('slideInner');
   const panCur = document.getElementById('panelCur');
   const panPrev= document.getElementById('panelPrev');
@@ -1051,6 +1349,11 @@ function getWeekNumber(date) {
 }
 
 function updateLabel(){
+  if(vm==='hours'){
+    document.getElementById('pl').textContent=`${UI.hours}: ${hoursPeriodLabel(hoursFocusPeriod,anc)}`;
+    syncUrl();
+    return;
+  }
   const days=getDays().sort((a,b)=>a-b);
   if(vm==='day'){const d=days[0];document.getElementById('pl').textContent=`${DL[d.getDay()]} ${d.getDate()} ${MN[d.getMonth()]} ${d.getFullYear()}`}
   else{
@@ -1069,7 +1372,7 @@ function updateLabel(){
 
 function syncUrl(){
   const days=getDays().sort((a,b)=>a-b);
-  const d=days[0];
+  const d=vm==='hours'?new Date(anc):days[0];
   const ds=`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
   history.replaceState(null,'',location.pathname+'#'+vm+'/'+ds);
 }
@@ -1173,7 +1476,7 @@ function buildCompactCard(container, days, today, exp){
         const isDanger = rawName.includes('**');
         const ts=ev.start._ad?'Hele dag':`${p2(ev.start.getHours())}:${p2(ev.start.getMinutes())}`;
         const te=ev.end&&!ev.end._ad?`–${p2(ev.end.getHours())}:${p2(ev.end.getMinutes())}`:' ';
-        html+=`<div class="compact-ev${isQuestion?' question-shift':''}${isDanger?' danger-shift':''}" style="background:${bg};color:${tx};border-left-color:${ac};animation-delay:${idx++*40}ms">
+        html+=`<div class="compact-ev${isQuestion?' question-shift':''}${isDanger?' danger-shift':''}" style="background:${bg};color:${tx};border-left-color:${ac};--sk-bg-color:${bg};--sk-ink-color:${sketchInkFromHex(bg)};animation-delay:${idx++*40}ms;${sketchTextureStyle(ev,'compact')}">
           <span class="et">${ev.title||'(geen titel)'}</span>
           <span class="es">${ts} ${te}</span>
         </div>`;
@@ -1316,7 +1619,7 @@ function buildCompactTimeGrid(container, days, today, exp, sh, eh){
         const cls=ev._cal==='holiday'?'is-holiday':ev._cal==='afspraken'?'is-afspraak':'is-other';
         const[bg,tx,ac]=ev._cal==='holiday'?['#fde8e8','#c0392b','#c0392b']:ev._cal==='afspraken'?['#e8f0fe','#1a56db','#1a56db']:PALETTES[nameHash(ev.title||'')];
         const bl=document.createElement('div');
-        bl.className=`allday-block ${cls}`;bl.style.cssText=`background:${bg};color:${tx};border-left-color:${ac}`;bl.dataset.baseZ='';bl.textContent=ev.title||'?';
+        bl.className=`allday-block ${cls}`;bl.style.cssText=`background:${bg};color:${tx};border-left-color:${ac};--sk-bg-color:${bg};--sk-ink-color:${sketchInkFromHex(bg)};${sketchTextureStyle(ev,'split-allday')}`;bl.dataset.baseZ='';bl.textContent=ev.title||'?';
         bl.addEventListener('mousemove',e=>showTip(e,ev));bl.addEventListener('mouseleave',hideTip);
         bl.addEventListener('touchend',e=>activateEventBlock(e,bl,ev),{passive:false});
         bl.addEventListener('click',e=>activateEventBlock(e,bl,ev));
@@ -1551,7 +1854,7 @@ function buildGrid(container, colDefs, today, exp, _cm, _ci, _byDay, sh, eh){
         }
         const tipIdx=_adTipEvs.length;
         _adTipEvs.push(ev);
-        h+=`<div class="allday-block ${cls}" style="background:${bg};color:${tx};border-left-color:${ac}" data-adtip="${tipIdx}">${ev.title||'?'}${timeStr}</div>`;
+        h+=`<div class="allday-block ${cls}" style="background:${bg};color:${tx};border-left-color:${ac};--sk-bg-color:${bg};--sk-ink-color:${sketchInkFromHex(bg)};${sketchTextureStyle(ev,'allday')}" data-adtip="${tipIdx}">${ev.title||'?'}${timeStr}</div>`;
       });
       h+='</div>';
     });
@@ -1753,7 +2056,8 @@ function buildGrid(container, colDefs, today, exp, _cm, _ci, _byDay, sh, eh){
           const te=(!ev.start._ad&&ev.end&&!ev.end._ad)?` – ${p2(ev.end.getHours())}:${p2(ev.end.getMinutes())}`:'';
           const row=document.createElement('div');
           row.className='overflow-ev';
-          row.style.cssText=`background:${bg};color:${tx};border-left-color:${ac};animation-delay:${idx*40}ms`;
+          row.style.cssText=`background:${bg};color:${tx};border-left-color:${ac};--sk-bg-color:${bg};--sk-ink-color:${sketchInkFromHex(bg)};animation-delay:${idx*40}ms`;
+          applySketchTexture(row,ev,'overflow');
           row.innerHTML=`<span class="oe-name">${ev.title||'?'}</span><span class="oe-time">${ts?` ${ts}${te}`:''}</span>`;
           row.addEventListener('mousemove',e=>showTip(e,ev));
           row.addEventListener('mouseleave',hideTip);
@@ -1834,11 +2138,26 @@ document.addEventListener('click',e=>{
   }
 });
 
-document.getElementById('pB').onclick=()=>{anc=(vm==='week')?addD(anc,-7):addD(anc,-1);render(-1)};
-document.getElementById('nB').onclick=()=>{anc=(vm==='week')?addD(anc,7):addD(anc,1);render(1)};
+
+function setViewMode(mode){
+  vm=mode;
+  if(vm==='week') anc=sowk(anc);
+  document.getElementById('bW')?.classList.toggle('on', vm==='week');
+  document.getElementById('bD')?.classList.toggle('on', vm==='day');
+}
+function shiftAnchor(delta){
+  if(vm==='week') anc=addD(anc,delta*7);
+  else if(vm==='day') anc=addD(anc,delta);
+  else if(hoursFocusPeriod==='week') anc=addD(sowk(anc),delta*7);
+  else if(hoursFocusPeriod==='year') anc=new Date(anc.getFullYear()+delta,0,1);
+  else anc=new Date(anc.getFullYear(),anc.getMonth()+delta,1);
+}
+
+document.getElementById('pB').onclick=()=>{shiftAnchor(-1);render(-1)};
+document.getElementById('nB').onclick=()=>{shiftAnchor(1);render(1)};
 document.getElementById('tB').onclick=()=>{const t=new Date();anc=(vm==='week'&&!isPhone())?sowk(t):t;render(0);setTimeout(scrollToToday,350)};
-document.getElementById('bW').onclick=()=>{vm='week';anc=sowk(anc);document.getElementById('bW').classList.add('on');document.getElementById('bD').classList.remove('on');render(0)};
-document.getElementById('bD').onclick=()=>{vm='day';document.getElementById('bD').classList.add('on');document.getElementById('bW').classList.remove('on');render(0)};
+document.getElementById('bW').onclick=()=>{setViewMode('week');render(0)};
+document.getElementById('bD').onclick=()=>{setViewMode('day');render(0)};
 
 // trackpad / touch swipe navigation
 (() => {
@@ -1877,8 +2196,8 @@ initEditFeatures();
 
 // ── DATEPICKER ───────────────────────────────────────────
 (()=>{
-  // Locale-aware short weekday names Mon–Sun (2023-01-02 = Monday)
-  const _dpDow = Array.from({length:7},(_,i)=>new Intl.DateTimeFormat(_locale,{weekday:'short'}).format(new Date(2023,0,2+i)));
+  const _wsd=((CONFIG.defaults||{}).weekStartDay??1);
+  const _dpDow = Array.from({length:7},(_,i)=>new Intl.DateTimeFormat(_locale,{weekday:'short'}).format(new Date(2023,0,(_wsd===0?1:2)+i)));
   const _dpMonFmt = new Intl.DateTimeFormat(_locale,{month:'long',year:'numeric'});
   const dp=document.getElementById('datePicker');
   let dpDate=new Date(); // month currently shown in picker
@@ -1888,38 +2207,50 @@ initEditFeatures();
     const y=dpDate.getFullYear(),m=dpDate.getMonth();
     document.getElementById('dpMonthLabel').textContent=_dpMonFmt.format(new Date(y,m,1));
 
-    // Day-of-week headers starting Monday
-    let g=_dpDow.map(d=>`<div class="dp-dow">${d}</div>`).join('');
+    let g='<div class="dp-week-head">Wk</div>'+_dpDow.map(d=>`<div class="dp-dow">${d}</div>`).join('');
 
-    // First day of month; pad to Monday start
     const first=new Date(y,m,1);
-    const startDow=first.getDay()===0?6:first.getDay()-1; // 0=Mon
+    const startDow=_wsd===0?first.getDay():(first.getDay()===0?6:first.getDay()-1);
     const daysInMonth=new Date(y,m+1,0).getDate();
+    const visibleCells=Math.ceil((startDow+daysInMonth)/7)*7;
+    const gridStart=addD(first,-startDow);
 
-    // Prev month padding
-    const daysInPrev=new Date(y,m,0).getDate();
-    for(let i=startDow-1;i>=0;i--) g+=`<div class="dp-day dp-other">${daysInPrev-i}</div>`;
-
-    // Days of month
-    for(let d=1;d<=daysInMonth;d++){
-      const dd=new Date(y,m,d);dd.setHours(0,0,0,0);
+    for(let i=0;i<visibleCells;i++){
+      const dd=addD(gridStart,i);dd.setHours(0,0,0,0);
+      if(i%7===0){
+        const wkStart=new Date(dd);
+        const wkSel=vm==='week'||(vm==='hours'&&hoursFocusPeriod==='week')
+          ? wkStart.getTime()===sowk(anc).getTime()
+          : false;
+        g+=`<button class="dp-week${wkSel?' dp-week-sel':''}" type="button" data-y="${wkStart.getFullYear()}" data-m="${wkStart.getMonth()}" data-d="${wkStart.getDate()}" title="Selecteer week ${getWeekNumber(wkStart)}">${getWeekNumber(wkStart)}</button>`;
+      }
       const isToday=dd.getTime()===today.getTime();
-      // Is this day within the currently shown anchor?
-      const isSel=vm==='week'
-        ? (dd>=sowk(anc)&&dd<=addD(sowk(anc),6))
-        : same(dd,anc);
-      const cls='dp-day'+(isToday?' dp-today':'')+(isSel&&!isToday?' dp-sel':'');
-      g+=`<div class="${cls}" data-y="${y}" data-m="${m}" data-d="${d}">${d}</div>`;
+      const isOther=dd.getMonth()!==m;
+      let isSel;
+      if(vm==='week') isSel=dd>=sowk(anc)&&dd<=addD(sowk(anc),6);
+      else if(vm==='hours'&&hoursFocusPeriod==='week') isSel=dd>=sowk(anc)&&dd<=addD(sowk(anc),6);
+      else if(vm==='hours'&&hoursFocusPeriod==='month') isSel=dd.getFullYear()===anc.getFullYear()&&dd.getMonth()===anc.getMonth();
+      else if(vm==='hours'&&hoursFocusPeriod==='year') isSel=dd.getFullYear()===anc.getFullYear();
+      else isSel=same(dd,anc);
+      const cls='dp-day'+(isOther?' dp-other':'')+(isToday?' dp-today':'')+(isSel&&!isToday?' dp-sel':'');
+      g+=`<div class="${cls}" data-y="${dd.getFullYear()}" data-m="${dd.getMonth()}" data-d="${dd.getDate()}">${dd.getDate()}</div>`;
     }
-    // Next month padding to fill row
-    const total=startDow+daysInMonth;
-    const rem=total%7===0?0:7-(total%7);
-    for(let d=1;d<=rem;d++) g+=`<div class="dp-day dp-other">${d}</div>`;
 
     document.getElementById('dpGrid').innerHTML=g;
 
-    // Click on a day
+    // Click on a week number or day
     document.getElementById('dpGrid').onclick=e=>{
+      const wk=e.target.closest('.dp-week');
+      if(wk){
+        const chosen=new Date(+wk.dataset.y,+wk.dataset.m,+wk.dataset.d);
+        anc=sowk(chosen);
+        if(vm==='hours')hoursFocusPeriod='week';
+        else setViewMode('week');
+        render(0);
+        setTimeout(scrollToToday,350);
+        hidePicker();
+        return;
+      }
       const el=e.target.closest('.dp-day');
       if(!el||el.classList.contains('dp-other'))return;
       const chosen=new Date(+el.dataset.y,+el.dataset.m,+el.dataset.d);
@@ -1930,45 +2261,71 @@ initEditFeatures();
     };
   }
 
-  function showPicker(){
-    dpDate=new Date(anc); // start on current anchor's month
-    renderPicker();
-    // Position below the dropdown arrow button
-    const btn=document.getElementById('tBDrop');
-    const r=btn.getBoundingClientRect();
-    dp.style.top=(r.bottom+6)+'px';
-    dp.style.left=Math.min(r.left,window.innerWidth-270)+'px';
-    dp.style.display='block';
+  function syncPickerPosition(){
+    const h=document.querySelector('header')?.getBoundingClientRect().height||52;
+    document.documentElement.style.setProperty('--header-h',`${Math.ceil(h)}px`);
   }
-  function hidePicker(){ dp.style.display='none'; }
+  function applyHoursPickerMonth(){
+    if(vm!=='hours')return false;
+    if(hoursFocusPeriod==='year') anc=new Date(dpDate.getFullYear(),0,1);
+    else if(hoursFocusPeriod==='week') anc=sowk(new Date(dpDate.getFullYear(),dpDate.getMonth(),1));
+    else anc=new Date(dpDate.getFullYear(),dpDate.getMonth(),1);
+    render(0);
+    return true;
+  }
+  function syncHoursPickerPadding(){
+    if(vm==='hours'&&dp.classList.contains('dp-open')){
+      document.documentElement.style.setProperty('--datepicker-h',`${Math.ceil(dp.getBoundingClientRect().height)}px`);
+      document.body.classList.add('hours-picker-open');
+    } else {
+      document.documentElement.style.setProperty('--datepicker-h','0px');
+      document.body.classList.remove('hours-picker-open');
+    }
+  }
+  function showPicker(anchorEl){
+    dpDate=new Date(anc); // start on current anchor's month
+    syncPickerPosition();
+    renderPicker();
+    dp.classList.add('dp-open');
+    syncHoursPickerPadding();
+  }
+  function togglePicker(anchorEl){ dp.classList.contains('dp-open')?hidePicker():showPicker(anchorEl); }
+  function hidePicker(){ dp.classList.remove('dp-open'); syncHoursPickerPadding(); }
 
-  document.getElementById('tBDrop').onclick=e=>{
+  const _dpToggle=e=>{
     e.stopPropagation();
-    dp.style.display==='none'?showPicker():hidePicker();
+    togglePicker(e.currentTarget);
   };
+  document.getElementById('tBDrop')?.addEventListener('click',_dpToggle);
+  document.getElementById('hdrDateBtn')?.addEventListener('click',_dpToggle);
   document.getElementById('dpPrev').onclick=e=>{
     e.stopPropagation();
     dpDate=new Date(dpDate.getFullYear(),dpDate.getMonth()-1,1);
+    applyHoursPickerMonth();
     renderPicker();
+    syncHoursPickerPadding();
   };
   document.getElementById('dpNext').onclick=e=>{
     e.stopPropagation();
     dpDate=new Date(dpDate.getFullYear(),dpDate.getMonth()+1,1);
+    applyHoursPickerMonth();
     renderPicker();
+    syncHoursPickerPadding();
   };
+  window.addEventListener('resize',()=>{if(dp.classList.contains('dp-open')){syncPickerPosition();syncHoursPickerPadding();}});
   // Close on outside click
   document.addEventListener('click',e=>{
-    if(!dp.contains(e.target)&&e.target.id!=='tBDrop')hidePicker();
+    if(!dp.contains(e.target)&&!e.target.closest('#tBDrop,#hdrDateBtn'))hidePicker();
   });
 })();
 
 // ── KEYBOARD NAVIGATION ─────────────────────────────────
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-  if (e.key === 'ArrowLeft')  { anc=(vm==='week')?addD(anc,-7):addD(anc,-1); render(-1); e.preventDefault(); }
-  if (e.key === 'ArrowRight') { anc=(vm==='week')?addD(anc,7):addD(anc,1); render( 1); e.preventDefault(); }
-  if (e.key === 'ArrowUp')    { vm='week';anc=sowk(anc);document.getElementById('bW').classList.add('on');document.getElementById('bD').classList.remove('on');render(0);e.preventDefault(); }
-  if (e.key === 'ArrowDown')  { vm='day';document.getElementById('bD').classList.add('on');document.getElementById('bW').classList.remove('on');render(0);e.preventDefault(); }
+  if (e.key === 'ArrowLeft')  { shiftAnchor(-1); render(-1); e.preventDefault(); }
+  if (e.key === 'ArrowRight') { shiftAnchor(1); render( 1); e.preventDefault(); }
+  if (e.key === 'ArrowUp')    { setViewMode('week');render(0);e.preventDefault(); }
+  if (e.key === 'ArrowDown')  { setViewMode('day');render(0);e.preventDefault(); }
 });
 
 // ── SWIPE NAVIGATION (with slide animation) ──────────────
@@ -1991,8 +2348,8 @@ document.addEventListener('keydown', e => {
     const dy=e.changedTouches[0].clientY-ty;
     if(Math.abs(dx)<50||Math.abs(dx)<Math.abs(dy)*1.5)return;
     sliding=true;
-    if(dx<0){anc=(vm==='week')?addD(anc,7):addD(anc,1);render( 1);}
-    else    {anc=(vm==='week')?addD(anc,-7):addD(anc,-1);render(-1);}
+    if(dx<0){shiftAnchor(1);render( 1);}
+    else    {shiftAnchor(-1);render(-1);}
     setTimeout(()=>sliding=false,400);
   },{passive:true});
 })();
@@ -2032,22 +2389,65 @@ if(!isLocal){
 // Chrome/Edge/Android install prompt
 let deferredPrompt=null;
 window.addEventListener('beforeinstallprompt',e=>{
-  // Don't call preventDefault — that suppresses the mini-infobar on Android
+  e.preventDefault();
   deferredPrompt=e;
-  const b=document.getElementById('installBtn');b.style.display='flex';
+  const b=document.getElementById('installBtn');if(b)b.style.display='flex';
+  const sec=document.getElementById('installSection');if(sec)sec.style.display='';
 });
-window.addEventListener('appinstalled',()=>{document.getElementById('installBtn').style.display='none';});
+function ensureInstallVisible(){
+  const b=document.getElementById('installBtn');if(b)b.style.display='flex';
+  const sec=document.getElementById('installSection');if(sec)sec.style.display='';
+}
+window.addEventListener('appinstalled',ensureInstallVisible);
+ensureInstallVisible();
 
-document.getElementById('installBtn').addEventListener('click',async()=>{
+(()=>{
+  const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent)||(/macintosh/i.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
+  if(isIOS&&!window.navigator.standalone){
+    const b=document.getElementById('installBtn');if(b)b.style.display='flex';
+    const sec=document.getElementById('installSection');if(sec)sec.style.display='';
+  }
+})();
+
+function isIOSDevice(){
+  return /iphone|ipad|ipod/i.test(navigator.userAgent)||(/macintosh/i.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
+}
+function isStandaloneApp(){
+  return window.matchMedia?.('(display-mode: standalone)').matches||window.navigator.standalone===true;
+}
+function showInstallFallback(){
+  const ios=isIOSDevice();
+  const tip=document.getElementById('iosInstallTip');
+  if(tip) tip.style.display=ios?'':'none';
+  if(ios){
+    if(!tip) alert('iPhone / iPad:\nTik op het Deel-icoon (□↑) in Safari en kies "Zet op beginscherm".');
+    return;
+  }
+  const isAndroid=/android/i.test(navigator.userAgent);
+  const isChromium=/chrome|crios|edg|opr/i.test(navigator.userAgent);
+  if(isChromium||isAndroid){
+    alert('Installeren als app:\n\nAls de browserinstallatie beschikbaar is, opent deze knop automatisch de installatieprompt. Zie je deze melding, open dan het Chrome/Edge-menu (⋮ of ⋯) en kies "App installeren" of "Toevoegen aan startscherm". Laad de pagina eventueel één keer opnieuw na deze update.');
+  } else {
+    alert('Installeren als app:\nOpen het browsermenu en kies "App installeren" of "Toevoegen aan startscherm" als je browser dit ondersteunt.');
+  }
+}
+
+async function installAppAction(){
+  if(isStandaloneApp()){
+    alert('Parknest is al als app geopend.');
+    return;
+  }
   if(deferredPrompt){
     deferredPrompt.prompt();
     const{outcome}=await deferredPrompt.userChoice;
     deferredPrompt=null;
-    if(outcome==='accepted')document.getElementById('installBtn').style.display='none';
+    if(outcome==='accepted')ensureInstallVisible();
   } else {
-    alert('Voeg toe aan startscherm:\n\n📱 iPhone/iPad:\nTik op het Deel-icoon (□↑) onderaan Safari → "Zet op beginscherm"\n\n🤖 Android (Chrome):\nTik op menu (⋮) → "Toevoegen aan startscherm"\n\n💻 Desktop Chrome/Edge:\nKlik op het ⊕ icoon rechts in de adresbalk');
+    showInstallFallback();
   }
-});
+}
+
+document.getElementById('installBtn')?.addEventListener('click',installAppAction);
 
 // ── PRINT ORIENTATION ───────────────────────────────────
 (()=>{
@@ -2067,9 +2467,11 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
     const days=getDays().sort((a,b)=>a-b);
     const s=days[0],e=days[days.length-1];
     const wk=getWeekNr(s);
-    const label=vm==='day'
-      ? `${DL[s.getDay()]} ${s.getDate()} ${MN[s.getMonth()]} ${s.getFullYear()}`
-      : `${UI.week} ${wk} · ${s.getDate()} ${MN[s.getMonth()]} – ${e.getDate()} ${MN[e.getMonth()]} ${e.getFullYear()}`;
+    const label=vm==='hours'
+      ? `${UI.hours}: ${hoursPeriodLabel(hoursFocusPeriod,anc)}`
+      : vm==='day'
+        ? `${DL[s.getDay()]} ${s.getDate()} ${MN[s.getMonth()]} ${s.getFullYear()}`
+        : `${UI.week} ${wk} · ${s.getDate()} ${MN[s.getMonth()]} – ${e.getDate()} ${MN[e.getMonth()]} ${e.getFullYear()}`;
     document.getElementById('printMeta').textContent=label;
 
     pageStyle.textContent=orientation==='landscape'
@@ -2135,25 +2537,25 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
     });
   }
 
-  // Main button → landscape; arrow → dropdown menu
   const menu=document.getElementById('printMenu');
-
   function showPrintMenu(){
+    if(!menu)return;
     const btn=document.getElementById('printDrop');
+    if(!btn)return;
     const r=btn.getBoundingClientRect();
     menu.style.top=(r.bottom+4)+'px';
     menu.style.left=Math.min(r.left,window.innerWidth-180)+'px';
     menu.style.display='block';
   }
-  function hidePrintMenu(){ menu.style.display='none'; }
+  function hidePrintMenu(){ if(menu)menu.style.display='none'; }
 
-  document.getElementById('printLandBtn').addEventListener('click',()=>printAs('landscape'));
-  document.getElementById('printDrop').addEventListener('click',e=>{
+  document.getElementById('printLandBtn')?.addEventListener('click',()=>printAs('landscape'));
+  document.getElementById('printDrop')?.addEventListener('click',e=>{
     e.stopPropagation();
-    menu.style.display==='none'?showPrintMenu():hidePrintMenu();
+    menu&&menu.style.display==='none'?showPrintMenu():hidePrintMenu();
   });
-  document.getElementById('printLandOpt').addEventListener('click',()=>{ hidePrintMenu(); printAs('landscape'); });
-  document.getElementById('printPortOpt').addEventListener('click',()=>{ hidePrintMenu(); printAs('portrait'); });
+  document.getElementById('printLandOpt')?.addEventListener('click',()=>{ hidePrintMenu(); printAs('landscape'); });
+  document.getElementById('printPortOpt')?.addEventListener('click',()=>{ hidePrintMenu(); printAs('portrait'); });
   document.addEventListener('click',e=>{
     if(!e.target.closest('#printBtnGroup')&&!e.target.closest('#printMenu')) hidePrintMenu();
   });
@@ -2302,7 +2704,73 @@ document.getElementById('installBtn').addEventListener('click',async()=>{
   });
 })();
 
+// ── SETTINGS DRAWER ─────────────────────────────────────
+(()=>{
+  const COOKIE='overlap_settings';
+  function readCookie(){
+    const m=document.cookie.match(new RegExp('(?:^|; )'+COOKIE+'=([^;]*)'));
+    if(!m)return{};
+    try{return JSON.parse(decodeURIComponent(m[1]));}catch(_){return{};}
+  }
+  function writeCookie(s){
+    document.cookie=COOKIE+'='+encodeURIComponent(JSON.stringify(s))+';path=/;max-age=31536000;SameSite=Lax';
+  }
+  function currentTheme(){
+    const m=document.body.className.match(/\btheme-(\w+)\b/);
+    return m?m[1]:'blockery';
+  }
+  function currentWeekStart(){return ((window.ROOSTER_CONFIG||{}).defaults||{}).weekStartDay??1;}
+  function currentRefreshMin(){return window._roosterRefreshMin!==undefined?window._roosterRefreshMin:15;}
+  function syncUI(){
+    const themeSel=document.getElementById('stpThemeSelect');
+    const animSel=document.getElementById('stpAnimSelect');
+    const refreshSel=document.getElementById('stpRefreshSelect');
+    const weekSel=document.getElementById('stpWeekSelect');
+    if(themeSel)themeSel.value=currentTheme();
+    if(animSel)animSel.value=String(typeof window._getEventAnimationStyle==='function'?window._getEventAnimationStyle():+(localStorage.getItem('evAnimIdx')||0));
+    if(refreshSel)refreshSel.value=String(currentRefreshMin());
+    if(weekSel)weekSel.value=String(currentWeekStart());
+  }
+  function openPanel(){syncUI();document.body.classList.add('menu-open');}
+  function closePanel(){document.body.classList.remove('menu-open');}
+  function applyAndReload(s){writeCookie(s);location.reload();}
+
+  document.getElementById('menuBtn')?.addEventListener('click',e=>{
+    e.stopPropagation();
+    document.body.classList.contains('menu-open')?closePanel():openPanel();
+  });
+  document.getElementById('menuOverlay')?.addEventListener('click',closePanel);
+  document.getElementById('stpClose')?.addEventListener('click',closePanel);
+  document.getElementById('stpHoursBtn')?.addEventListener('click',()=>{
+    closePanel();
+    setViewMode('hours');
+    render(0);
+  });
+  ['shareBtn','shareDrop','printLandBtn','printPortOpt','printLandOpt'].forEach(id=>{
+    document.getElementById(id)?.addEventListener('click',()=>setTimeout(closePanel,120));
+  });
+  document.getElementById('stpThemeSelect')?.addEventListener('change',function(){
+    const s=readCookie();s.theme=this.value;applyAndReload(s);
+  });
+  document.getElementById('stpWeekSelect')?.addEventListener('change',function(){
+    const s=readCookie();s.weekStart=+this.value;applyAndReload(s);
+  });
+  document.getElementById('stpRefreshSelect')?.addEventListener('change',function(){
+    const min=+this.value;const s=readCookie();s.refreshMin=min;writeCookie(s);
+    if(typeof window._setRefreshInterval==='function')window._setRefreshInterval(min);
+  });
+  document.getElementById('stpAnimSelect')?.addEventListener('change',function(){
+    const idx=+this.value;localStorage.setItem('evAnimIdx',idx);
+    if(typeof window._setEventAnimationStyle==='function')window._setEventAnimationStyle(idx);
+  });
+  document.getElementById('stpReset')?.addEventListener('click',()=>{
+    const s=readCookie();delete s.theme;s.weekStart=1;delete s.refreshMin;writeCookie(s);
+    localStorage.removeItem('evAnimIdx');location.reload();
+  });
+})();
+
 applyLocaleUI();
+setViewMode(vm);
 
 // Apply screen font scale from config (printFontScale is handled in printAs — week view only)
 (()=>{
@@ -2317,8 +2785,15 @@ applyLocaleUI();
 
 fetchEvents();
 
-// Auto-refresh every 15 minutes (silent — no skeleton, calendar stays visible)
-setInterval(() => fetchEvents(true), 15 * 60 * 1000);
+// Auto-refresh every 15 minutes (silent — no skeleton, calendar stays visible).
+// Force the proxy past its cache so timer drift cannot return a nearly-expired file.
+let _refreshTimer=null;
+window._setRefreshInterval=function(min){
+  window._roosterRefreshMin=+min;
+  if(_refreshTimer)clearInterval(_refreshTimer);
+  if(+min>0)_refreshTimer=setInterval(()=>fetchEvents(true,true),+min*60*1000);
+};
+window._setRefreshInterval(window._roosterRefreshMin!==undefined?window._roosterRefreshMin:15);
 
 // ── EVENT ANIMATION STYLE SWITCHER ───────────────────────
 // Tap the period label (#pl) to cycle: Grow → Rise → Fade → Grow…
@@ -2336,6 +2811,8 @@ setInterval(() => fetchEvents(true), 15 * 60 * 1000);
     r.setProperty('--ev-dur', s.dur);
     r.setProperty('--ev-ease',s.ease);
   }
+  window._getEventAnimationStyle=()=>cur;
+  window._setEventAnimationStyle=idx=>{cur=Math.max(0,Math.min(STYLES.length-1,+idx||0));localStorage.setItem('evAnimIdx',cur);apply();render(0);};
   apply();
   const pl=document.getElementById('pl');
   pl.style.cursor='pointer';
@@ -2354,5 +2831,5 @@ document.querySelector('.logo').addEventListener('click', () => {
   const img = document.querySelector('.logo img');
   img.classList.add('logo-spin');
   img.addEventListener('animationend', () => img.classList.remove('logo-spin'), {once:true});
-  fetchEvents();
+  fetchEvents(false, true);
 });
