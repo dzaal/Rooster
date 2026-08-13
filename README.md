@@ -72,11 +72,12 @@ All runtime configuration lives in `rooster/rooster-config.js`.
 ### Crew
 Array of objects — one per volunteer:
 ```js
-{ name: 'Dirk', color: '#52b788', bday: '18-07' }
+{ name: 'Dirk', color: '#52b788', bday: '18-07', aliases: ['Dirk1', 'Zirk'] }
 ```
 - `name` — matched case-insensitively against event titles in the ICS feed
 - `color` — hex colour for that volunteer's shift blocks
 - `bday` — optional birthday (`DD-MM`), shown as a small indicator
+- `aliases` — optional alternative calendar names, all counted and coloured as the main volunteer
 
 ### Calendar URLs
 All calendars must be set to **share all information** (not just free/busy) in Google Calendar settings.

@@ -19,7 +19,7 @@ window.ROOSTER_CONFIG = {
     {name: 'Bert',      color: '#8d6e63'},
     {name: 'Cato',      color: '#ff9f1c', bday: '04-04'},
     {name: 'Chris',     color: '#5a9fd4', bday: '08-04'},
-    {name: 'Dirk',      color: '#52b788', bday: '18-07'},
+    {name: 'Dirk',      color: '#52b788', bday: '18-07', aliases: ['Dirk1', 'Zirk']},
     {name: 'Dirk2',     color: '#e43ed6', bday: '28-01'},
     {name: 'Elisabeth', color: '#7e57c2'},
     {name: 'Fenna',     color: '#e8739a', bday: '07-06'},
@@ -32,8 +32,7 @@ window.ROOSTER_CONFIG = {
     {name: 'Khatera',   color: '#c44569'},
     {name: 'Lijn',      color: '#9b59b6', bday: '25-08'},
     {name: 'Lucas',     color: '#118ab2'},
-    {name: 'Laetitia',  color: '#6c63ff', bday: '08-11'},
-    {name: 'Letitia',   color: '#6c63ff', bday: '08-11'},
+    {name: 'Laetitia',  color: '#6c63ff', bday: '08-11', aliases: ['Letitia']},
     {name: 'Manon',     color: '#55e08a'},
     {name: 'Mariska',   color: '#17a2b8', bday: '03-02'},
     {name: 'Mika',      color: '#f77f00', bday: '22-02'},
@@ -44,15 +43,13 @@ window.ROOSTER_CONFIG = {
     {name: 'Rob',       color: '#2a9d8f'},
     {name: 'Roland',    color: '#2dbfd0'},
     {name: 'Rolf',      color: '#06d6a0'},
-    {name: 'Roos',      color: '#93014d', bday: '29-11'},
-    {name: 'Rosanne',   color: '#ad1457', bday: '29-11'},
+    {name: 'Roos',      color: '#93014d', bday: '29-11', aliases: ['Rosanne']},
     {name: 'Suus',      color: '#80ed99', bday: '15-12'},
     {name: 'SuzyW',     color: '#f4c430', bday: '13-05'},
     {name: 'Zdeno',     color: '#0096c7'},
     {name: 'Zilan',     color: '#48cae4', bday: '01-10'},
     {name: 'Emma',      color: '#5575e0'},
-    {name: 'Victoria',  color: '#ef476f'},
-    {name: 'Zirk',      color: '#52b788'}
+    {name: 'Victoria',  color: '#ef476f'}
   ],
 
   // ── DEFAULTS & API KEYS ──────────────────────────────────────────────────

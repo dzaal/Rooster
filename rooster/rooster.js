@@ -34,7 +34,7 @@ function showShareToast(msg){
 function hasGoogleConfig(){ return !!(CONFIG.defaults.googleClientId && CONFIG.defaults.googleApiKey && CONFIG.defaults.googleCalendarId); }
 let googleClientLoaded = false;
 let googleSignedIn = false;
-function crewColor(name){ const user = CONFIG.crew.find(c=>c.name.toLowerCase()===name.toLowerCase()); return user?.color || PALETTES[nameHash(name)][0] || '#dbeeff'; }
+function crewColor(name){ const user=crewForName(name); return user?.color || PALETTES[nameHash(name)][0] || '#dbeeff'; }
 function localShiftToEvent(shift){ const start = new Date(shift.start); const end = new Date(shift.end); return { title: shift.title, desc: shift.desc||'', location: shift.location||'', start, end, uid: shift.id || `local-${Date.now()}-${Math.random().toString(36).slice(2,8)}`, _cal:'custom', localId: shift.id } }
 function mergeLocalShifts(evList){ 
   const localEvs = localShifts.filter(s=>s.active!==false).map(localShiftToEvent).filter(ev => !shouldFilterEvent(ev));
@@ -835,12 +835,20 @@ function normalizeCrewToken(name){
 
 function crewAliasMap(){
   const map=new Map();
-  (CONFIG.crew||[]).forEach(c=>map.set(normalizeCrewToken(c.name),c.name));
+  (CONFIG.crew||[]).forEach(c=>{
+    map.set(normalizeCrewToken(c.name),c.name);
+    (c.aliases||[]).forEach(alias=>map.set(normalizeCrewToken(alias),c.name));
+  });
   (CONFIG.crew||[]).forEach(c=>{
     const key=normalizeCrewToken(c.name);
     if(!map.has(key+'1'))map.set(key+'1',c.name);
   });
   return map;
+}
+
+function crewForName(name){
+  const canonical=crewAliasMap().get(normalizeCrewToken(name));
+  return (CONFIG.crew||[]).find(c=>c.name===canonical);
 }
 
 function nameHasQuestionMark(name){
@@ -946,7 +954,7 @@ function applyColor(dv, title){
     dv.classList.add('question-shift');
   }
 
-  const crewItem = CONFIG.crew.find(c=>c.name.toLowerCase()===displayName.toLowerCase());
+  const crewItem = crewForName(displayName);
   if(crewItem){
     const baseColor = crewItem.color;
     const contrast = contrastTextColor(baseColor);
@@ -1189,7 +1197,8 @@ function renderHoursBreakdown(detail, crew, period, anchorDate){
 function renderHoursView(container, anchorDate, deferAnimation=false){
   const rows=hoursDataFor(anchorDate);
   const periodLabels={week:'uren deze week',month:'uren deze maand',year:'per jaar'};
-  container.innerHTML=`<div class="hours-report${deferAnimation?' hours-anim-pending':''}"><div class="hours-context"><span class="hours-context-label">${esc(new Intl.DateTimeFormat(_locale,{month:'long',year:'numeric'}).format(anchorDate))}</span><span class="hours-week-nav"><button class="hours-week-arrow" type="button" data-hours-week-nav="-1" title="Vorige week">‹</button><span class="hours-week-label">week ${getWeekNumber(sowk(anchorDate))}</span><button class="hours-week-arrow" type="button" data-hours-week-nav="1" title="Volgende week">›</button></span><span class="hours-date-range">${esc(hoursWeekDateLabel(anchorDate))}</span></div><div class="hours-summary">
+  const allTotals={week:rows.reduce((sum,c)=>sum+c.totals.week,0)};
+  container.innerHTML=`<div class="hours-report${deferAnimation?' hours-anim-pending':''}"><div class="hours-context"><span class="hours-context-label">${esc(new Intl.DateTimeFormat(_locale,{month:'long',year:'numeric'}).format(anchorDate))}</span><span class="hours-week-nav"><button class="hours-week-arrow" type="button" data-hours-week-nav="-1" title="Vorige week">‹</button><span class="hours-week-label">week ${getWeekNumber(sowk(anchorDate))}</span><button class="hours-week-arrow" type="button" data-hours-week-nav="1" title="Volgende week">›</button></span><span class="hours-date-range">${esc(hoursWeekDateLabel(anchorDate))}</span><span class="hours-all-totals"><span>totaal deze week: <b>${fmtHours(allTotals.week)}</b> uren</span></span></div><div class="hours-summary">
     ${rows.length?rows.map((c,idx)=>{
       const color=c.color||crewColor(c.name);
       const totalButtons=['week','month','year'].map(period=>`<button class="hours-total" type="button" data-hours-crew="${esc(c.name)}" data-hours-period="${period}">
@@ -1441,6 +1450,9 @@ function assignColumns(evList, maxCols=3){
       ?(ev.end._ad ? ev.start.getTime()+8*3600000 : ev.end.getTime())
       :s+3600000;
     let placed=false;
+    if(ev._cal==='main'){result.push({ev,col:0,total:0,overflow:false});continue;}
+
+
     // First pass: find a column that ends at or before our start (no overlap)
     for(let c=0;c<cols.length&&c<maxCols;c++){
       if(cols[c]<=s){cols[c]=e;result.push({ev,col:c,total:0,overflow:false});placed=true;break}
@@ -2019,7 +2031,7 @@ function buildGrid(container, colDefs, today, exp, _cm, _ci, _byDay, sh, eh){
             .sort((a,b)=>a.col-b.col||a.ev.start-b.ev.start||(a.ev.title||'').localeCompare(b.ev.title||''));
           const shiftIdx=Math.max(0,shiftGroup.findIndex(r2=>r2.ev===ev));
           const shiftTotal=Math.max(1,shiftGroup.length);
-          const mainReserve=vm==='day'?22:25;
+          const mainReserve=25;
           const usable=100-mainReserve;
           const gap=shiftTotal<=2?2:1;
           const cellW=(usable-gap*(shiftTotal-1))/shiftTotal;
@@ -2865,9 +2877,13 @@ window._setRefreshInterval(window._roosterRefreshMin!==undefined?window._rooster
 })();
 
 // Logo tap = force reload with spin animation
-document.querySelector('.logo').addEventListener('click', () => {
+document.querySelector('.logo')?.addEventListener('click', () => {
   const img = document.querySelector('.logo img');
-  img.classList.add('logo-spin');
-  img.addEventListener('animationend', () => img.classList.remove('logo-spin'), {once:true});
+  if(img){
+    img.classList.remove('logo-spin');
+    void img.offsetWidth;
+    img.classList.add('logo-spin');
+    img.addEventListener('animationend', () => img.classList.remove('logo-spin'), {once:true});
+  }
   fetchEvents(false, true);
 });
